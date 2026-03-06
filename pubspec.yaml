@@ -6,32 +6,32 @@ version: 1.6.2+162
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
-  flutter: 3.38.5
+  flutter: 3.41.4
 
 dependencies:
   flutter:
     sdk: flutter
   path_provider: any
   intl: any
-  window_manager: ^0.4.3
+  window_manager: ^0.5.1
   sqlite3: ^2.7.4
   sqlite3_flutter_libs: ^0.5.30
   flutter_qjs:
     git:
-      url: https://github.com/wgh136/flutter_qjs
+      url: https://github.com/venera-app/flutter_qjs
       ref: 8feae95df7fb00455df129ad7a0dfec1d0e8d8e4
   crypto: ^3.0.6
-  dio: ^5.8.0+1
-  html: ^0.15.5
+  dio: ^5.9.2
+  html: ^0.15.6
   pointycastle: ^4.0.0
-  url_launcher: ^6.3.0
+  url_launcher: ^6.3.2
   path: ^1.9.0
   photo_view:
     git:
-      url: https://github.com/wgh136/photo_view
+      url: https://github.com/venera-app/photo_view
       ref: a1255d1b5945aad4b7323303ec2ecdf0c90ffc4c
   mime: ^2.0.0
-  share_plus: ^10.1.4
+  share_plus: ^12.0.1
   scrollable_positioned_list:
     git:
       url: https://github.com/venera-app/flutter.widgets
@@ -41,7 +41,7 @@ dependencies:
   uuid: ^4.5.1
   desktop_webview_window:
     git:
-      url: https://github.com/wgh136/flutter_desktop_webview
+      url: https://github.com/venera-app/flutter_desktop_webview
       path: packages/desktop_webview_window
       ref: 7801fc582ecf5a7351632887891ecf309a7b2583
   flutter_inappwebview:
@@ -49,39 +49,35 @@ dependencies:
       url: https://github.com/venera-app/flutter_inappwebview
       path: flutter_inappwebview
       ref: 3ef899b3db57c911b080979f1392253b835f98ab
-  app_links: ^6.4.0
+  app_links: ^7.0.0
   sliver_tools: ^0.2.12
-  flutter_file_dialog: ^3.0.2
-  file_selector: ^1.0.3
+  flutter_file_dialog: ^3.0.3
+  file_selector: ^1.1.0
   zip_flutter: ^0.0.13
   lodepng_flutter:
     git:
       url: https://github.com/venera-app/lodepng_flutter
       ref: ac7d05dde32e8d728102a9ff66e6b55f05d94ba1
-  rhttp:
-    git:
-      url: https://github.com/wgh136/rhttp
-      ref: 1f0ff50336062c5f809c256726dc55cd30b9ce59
-      path: rhttp
+  rhttp: ^0.15.1
   webdav_client:
     git:
-      url: https://github.com/wgh136/webdav_client
+      url: https://github.com/venera-app/webdav_client
       ref: 2f669c98fb81cff1c64fee93466a1475c77e4273
-  battery_plus: ^6.2.1
-  local_auth: ^2.3.0
+  battery_plus: ^7.0.0
+  local_auth: ^3.0.1
   flutter_saf:
     git: 
       url: https://github.com/venera-app/flutter_saf
       ref: fe182cdf40e5fa6230f451bc1d643b860f610d13
-  dynamic_color: ^1.7.0
+  dynamic_color: ^1.8.1
   shimmer_animation: ^2.1.0
   flutter_memory_info: ^0.0.3
   syntax_highlight: ^0.4.0
   flutter_7zip:
     git:
-      url: https://github.com/wgh136/flutter_7zip
+      url: https://github.com/venera-app/flutter_7zip
       ref: b33344797f1d2469339e0e1b75f5f954f1da224c
-  flex_seed_scheme: ^3.5.0
+  flex_seed_scheme: ^4.0.1
   flutter_localizations:
     sdk: flutter
   yaml: ^3.1.3
