@@ -8,6 +8,7 @@ class _SwitchSetting extends StatefulWidget {
     this.subtitle,
     this.comicId,
     this.comicSource,
+    this.useDeviceSettings = false,
   });
 
   final String title;
@@ -22,6 +23,8 @@ class _SwitchSetting extends StatefulWidget {
 
   final String? comicSource;
 
+  final bool useDeviceSettings;
+
   @override
   State<_SwitchSetting> createState() => _SwitchSettingState();
 }
@@ -29,13 +32,15 @@ class _SwitchSetting extends StatefulWidget {
 class _SwitchSettingState extends State<_SwitchSetting> {
   @override
   Widget build(BuildContext context) {
-    var value = widget.comicId == null
-        ? appdata.settings[widget.settingKey]
-        : appdata.settings.getReaderSetting(
+    var value = widget.comicId != null
+        ? appdata.settings.getReaderSetting(
             widget.comicId!,
             widget.comicSource!,
             widget.settingKey,
-          );
+          )
+        : widget.useDeviceSettings
+        ? appdata.settings.getDeviceReaderSetting(widget.settingKey)
+        : appdata.settings[widget.settingKey];
 
     assert(value is bool);
 
@@ -46,15 +51,17 @@ class _SwitchSettingState extends State<_SwitchSetting> {
         value: value,
         onChanged: (value) {
           setState(() {
-            if (widget.comicId == null) {
-              appdata.settings[widget.settingKey] = value;
-            } else {
+            if (widget.comicId != null) {
               appdata.settings.setReaderSetting(
                 widget.comicId!,
                 widget.comicSource!,
                 widget.settingKey,
                 value,
               );
+            } else if (widget.useDeviceSettings) {
+              appdata.settings.setDeviceReaderSetting(widget.settingKey, value);
+            } else {
+              appdata.settings[widget.settingKey] = value;
             }
           });
           appdata.saveData().then((_) {
@@ -76,6 +83,7 @@ class SelectSetting extends StatelessWidget {
     this.help,
     this.comicId,
     this.comicSource,
+    this.useDeviceSettings = false,
   });
 
   final String title;
@@ -92,6 +100,8 @@ class SelectSetting extends StatelessWidget {
 
   final String? comicSource;
 
+  final bool useDeviceSettings;
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -107,6 +117,7 @@ class SelectSetting extends StatelessWidget {
               help: help,
               comicId: comicId,
               comicSource: comicSource,
+              useDeviceSettings: useDeviceSettings,
             );
           } else {
             return _EndSelectorSelectSetting(
@@ -117,6 +128,7 @@ class SelectSetting extends StatelessWidget {
               help: help,
               comicId: comicId,
               comicSource: comicSource,
+              useDeviceSettings: useDeviceSettings,
             );
           }
         },
@@ -134,6 +146,7 @@ class _DoubleLineSelectSettings extends StatefulWidget {
     this.help,
     this.comicId,
     this.comicSource,
+    this.useDeviceSettings = false,
   });
 
   final String title;
@@ -150,6 +163,8 @@ class _DoubleLineSelectSettings extends StatefulWidget {
 
   final String? comicSource;
 
+  final bool useDeviceSettings;
+
   @override
   State<_DoubleLineSelectSettings> createState() =>
       _DoubleLineSelectSettingsState();
@@ -158,13 +173,15 @@ class _DoubleLineSelectSettings extends StatefulWidget {
 class _DoubleLineSelectSettingsState extends State<_DoubleLineSelectSettings> {
   @override
   Widget build(BuildContext context) {
-    var value = widget.comicId == null
-        ? appdata.settings[widget.settingKey]
-        : appdata.settings.getReaderSetting(
+    var value = widget.comicId != null
+        ? appdata.settings.getReaderSetting(
             widget.comicId!,
             widget.comicSource!,
             widget.settingKey,
-          );
+          )
+        : widget.useDeviceSettings
+        ? appdata.settings.getDeviceReaderSetting(widget.settingKey)
+        : appdata.settings[widget.settingKey];
 
     return ListTile(
       title: Row(
@@ -226,15 +243,20 @@ class _DoubleLineSelectSettingsState extends State<_DoubleLineSelectSettings> {
         ).then((value) {
           if (value != null) {
             setState(() {
-              if (widget.comicId == null) {
-                appdata.settings[widget.settingKey] = value;
-              } else {
+              if (widget.comicId != null) {
                 appdata.settings.setReaderSetting(
                   widget.comicId!,
                   widget.comicSource!,
                   widget.settingKey,
                   value,
                 );
+              } else if (widget.useDeviceSettings) {
+                appdata.settings.setDeviceReaderSetting(
+                  widget.settingKey,
+                  value,
+                );
+              } else {
+                appdata.settings[widget.settingKey] = value;
               }
             });
             appdata.saveData();
@@ -255,6 +277,7 @@ class _EndSelectorSelectSetting extends StatefulWidget {
     this.help,
     this.comicId,
     this.comicSource,
+    this.useDeviceSettings = false,
   });
 
   final String title;
@@ -271,6 +294,8 @@ class _EndSelectorSelectSetting extends StatefulWidget {
 
   final String? comicSource;
 
+  final bool useDeviceSettings;
+
   @override
   State<_EndSelectorSelectSetting> createState() =>
       _EndSelectorSelectSettingState();
@@ -280,13 +305,15 @@ class _EndSelectorSelectSettingState extends State<_EndSelectorSelectSetting> {
   @override
   Widget build(BuildContext context) {
     var options = widget.optionTranslation;
-    var value = widget.comicId == null
-        ? appdata.settings[widget.settingKey]
-        : appdata.settings.getReaderSetting(
+    var value = widget.comicId != null
+        ? appdata.settings.getReaderSetting(
             widget.comicId!,
             widget.comicSource!,
             widget.settingKey,
-          );
+          )
+        : widget.useDeviceSettings
+        ? appdata.settings.getDeviceReaderSetting(widget.settingKey)
+        : appdata.settings[widget.settingKey];
     return ListTile(
       title: Row(
         children: [
@@ -325,15 +352,17 @@ class _EndSelectorSelectSettingState extends State<_EndSelectorSelectSetting> {
         onTap: (index) {
           setState(() {
             var value = options.keys.elementAt(index);
-            if (widget.comicId == null) {
-              appdata.settings[widget.settingKey] = value;
-            } else {
+            if (widget.comicId != null) {
               appdata.settings.setReaderSetting(
                 widget.comicId!,
                 widget.comicSource!,
                 widget.settingKey,
                 value,
               );
+            } else if (widget.useDeviceSettings) {
+              appdata.settings.setDeviceReaderSetting(widget.settingKey, value);
+            } else {
+              appdata.settings[widget.settingKey] = value;
             }
           });
           appdata.saveData();
@@ -354,6 +383,7 @@ class _SliderSetting extends StatefulWidget {
     this.onChanged,
     this.comicId,
     this.comicSource,
+    this.useDeviceSettings = false,
   });
 
   final String title;
@@ -372,6 +402,8 @@ class _SliderSetting extends StatefulWidget {
 
   final String? comicSource;
 
+  final bool useDeviceSettings;
+
   @override
   State<_SliderSetting> createState() => _SliderSettingState();
 }
@@ -380,49 +412,57 @@ class _SliderSettingState extends State<_SliderSetting> {
   @override
   Widget build(BuildContext context) {
     var value =
-        (widget.comicId == null
-                ? appdata.settings[widget.settingsIndex]
-                : appdata.settings.getReaderSetting(
+        (widget.comicId != null
+                ? appdata.settings.getReaderSetting(
                     widget.comicId!,
                     widget.comicSource!,
-                  widget.settingsIndex,
-                ))
+                    widget.settingsIndex,
+                  )
+                : widget.useDeviceSettings
+                ? appdata.settings.getDeviceReaderSetting(widget.settingsIndex)
+                : appdata.settings[widget.settingsIndex])
             .toDouble();
     return ListTile(
-      title: Text(
-        widget.title,
-        softWrap: true,
-        maxLines: 2,
-      ),
+      title: Text(widget.title, softWrap: true, maxLines: 2),
       trailing: Text(value.toString(), style: ts.s12),
       subtitle: Slider(
         value: value,
         onChanged: (value) {
           if (value.toInt() == value) {
             setState(() {
-              if (widget.comicId == null) {
-                appdata.settings[widget.settingsIndex] = value.toInt();
-              } else {
+              if (widget.comicId != null) {
                 appdata.settings.setReaderSetting(
                   widget.comicId!,
                   widget.comicSource!,
                   widget.settingsIndex,
                   value.toInt(),
                 );
+              } else if (widget.useDeviceSettings) {
+                appdata.settings.setDeviceReaderSetting(
+                  widget.settingsIndex,
+                  value.toInt(),
+                );
+              } else {
+                appdata.settings[widget.settingsIndex] = value.toInt();
               }
               appdata.saveData();
             });
           } else {
             setState(() {
-              if (widget.comicId == null) {
-                appdata.settings[widget.settingsIndex] = value;
-              } else {
+              if (widget.comicId != null) {
                 appdata.settings.setReaderSetting(
                   widget.comicId!,
                   widget.comicSource!,
                   widget.settingsIndex,
                   value,
                 );
+              } else if (widget.useDeviceSettings) {
+                appdata.settings.setDeviceReaderSetting(
+                  widget.settingsIndex,
+                  value,
+                );
+              } else {
+                appdata.settings[widget.settingsIndex] = value;
               }
               appdata.saveData();
             });

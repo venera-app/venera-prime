@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/data_sync.dart';
@@ -30,7 +31,7 @@ class Appdata with Init {
       futures.add(file.writeAsString(data));
 
       var disableSyncFields = json["settings"]["disableSyncFields"] as String;
-      if (disableSyncFields.isNotEmpty){
+      if (disableSyncFields.isNotEmpty) {
         var json4sync = jsonDecode(data);
         List<String> customDisableSync = splitField(disableSyncFields);
         for (var field in customDisableSync) {
@@ -42,7 +43,6 @@ class Appdata with Init {
       }
 
       await Future.wait(futures);
-
     } finally {
       _isSavingData = false;
     }
@@ -91,6 +91,7 @@ class Appdata with Init {
     "customImageProcessing",
     "webdav",
     "disableSyncFields",
+    "deviceId",
   ];
 
   /// Sync data from another device
@@ -98,11 +99,12 @@ class Appdata with Init {
     if (data['settings'] is Map) {
       var settings = data['settings'] as Map<String, dynamic>;
 
-      List<String> customDisableSync = splitField(this.settings["disableSyncFields"] as String);
+      List<String> customDisableSync = splitField(
+        this.settings["disableSyncFields"] as String,
+      );
 
       for (var key in settings.keys) {
-        if (!_disableSync.contains(key) &&
-            !customDisableSync.contains(key)) {
+        if (!_disableSync.contains(key) && !customDisableSync.contains(key)) {
           this.settings[key] = settings[key];
         }
       }
@@ -145,6 +147,10 @@ class Appdata with Init {
       Log.error("Appdata", "Failed to load appdata", e);
       Log.info("Appdata", "Resetting appdata");
       file.deleteIgnoreError();
+    }
+    if ((settings["deviceId"] as String).isEmpty) {
+      settings._data["deviceId"] = const Uuid().v4();
+      await saveData(false);
     }
     try {
       var implicitDataFile = File(FilePath.join(dataPath, 'implicitData.json'));
@@ -222,12 +228,15 @@ class Settings with ChangeNotifier {
     'reverseChapterOrder': false,
     'showSystemStatusBar': false,
     'comicSpecificSettings': <String, Map<String, dynamic>>{},
+    'deviceSpecificSettings': <String, Map<String, dynamic>>{},
+    'deviceId': '',
     'ignoreBadCertificate': false,
     'readerScrollSpeed': 1.0, // 0.5 - 3.0
     'localFavoritesFirst': true,
     'autoCloseFavoritePanel': false,
     'showChapterComments': true, // show chapter comments in reader
-    'showChapterCommentsAtEnd': false, // show chapter comments at end of chapter
+    'showChapterCommentsAtEnd':
+        false, // show chapter comments at end of chapter
   };
 
   operator [](String key) {
@@ -258,11 +267,14 @@ class Settings with ChangeNotifier {
   }
 
   dynamic getReaderSetting(String comicId, String sourceKey, String key) {
-    if (!isComicSpecificSettingsEnabled(comicId, sourceKey)) {
-      return _data[key];
+    if (isComicSpecificSettingsEnabled(comicId, sourceKey)) {
+      var comicValue =
+          _data['comicSpecificSettings']["$comicId@$sourceKey"]?[key];
+      if (comicValue != null) {
+        return comicValue;
+      }
     }
-    return _data['comicSpecificSettings']["$comicId@$sourceKey"]?[key] ??
-        _data[key];
+    return getDeviceReaderSetting(key);
   }
 
   void setReaderSetting(
@@ -281,6 +293,54 @@ class Settings with ChangeNotifier {
   void resetComicReaderSettings(String key) {
     (_data['comicSpecificSettings'] as Map).remove(key);
     notifyListeners();
+  }
+
+  void setEnabledDeviceSpecificSettings(bool enabled) {
+    setDeviceReaderSetting("enabled", enabled);
+  }
+
+  bool isDeviceSpecificSettingsEnabled() {
+    var deviceId = _data['deviceId'] as String;
+    if (deviceId.isEmpty) {
+      return false;
+    }
+    return _data['deviceSpecificSettings'][deviceId]?["enabled"] == true;
+  }
+
+  dynamic getDeviceReaderSetting(String key) {
+    if (!isDeviceSpecificSettingsEnabled()) {
+      return _data[key];
+    }
+    var deviceId = _data['deviceId'] as String;
+    return _data['deviceSpecificSettings'][deviceId]?[key] ?? _data[key];
+  }
+
+  void setDeviceReaderSetting(String key, dynamic value) {
+    var deviceId = _getOrCreateDeviceId();
+    (_data['deviceSpecificSettings'] as Map<String, dynamic>).putIfAbsent(
+      deviceId,
+      () => <String, dynamic>{},
+    )[key] = value;
+    notifyListeners();
+  }
+
+  void resetDeviceReaderSettings() {
+    var deviceId = _data['deviceId'] as String;
+    if (deviceId.isEmpty) {
+      return;
+    }
+    (_data['deviceSpecificSettings'] as Map).remove(deviceId);
+    notifyListeners();
+  }
+
+  String _getOrCreateDeviceId() {
+    var deviceId = _data['deviceId'] as String;
+    if (deviceId.isNotEmpty) {
+      return deviceId;
+    }
+    var id = const Uuid().v4();
+    _data['deviceId'] = id;
+    return id;
   }
 
   @override
