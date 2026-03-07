@@ -436,6 +436,8 @@
     "Clear specific reader settings for all comics": "清除所有漫画的特殊阅读设置",
     "Clear specific reader settings for this comic": "清除该漫画的特殊阅读设置",
     "Enable comic specific settings": "启用此漫画特定设置",
+    "Clear specific reader settings for this device": "清除该设备的特殊阅读设置",
+    "Enable device specific settings": "启用此设备特定设置",
     "Ignore Certificate Errors": "忽略证书错误",
     "Mouse scroll speed": "鼠标滚动速度"
   },
@@ -876,6 +878,8 @@
     "Clear specific reader settings for all comics": "清除所有漫畫的特殊閱讀設定",
     "Clear specific reader settings for this comic": "清除該漫畫的特殊閱讀設定",
     "Enable comic specific settings": "啟用此漫畫特定設定",
+    "Clear specific reader settings for this device": "清除該裝置的特殊閱讀設定",
+    "Enable device specific settings": "啟用此裝置特定設定",
     "Ignore Certificate Errors": "忽略證書錯誤",
     "Mouse scroll speed": "滑鼠滾動速度"
   }
