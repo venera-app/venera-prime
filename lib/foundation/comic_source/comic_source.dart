@@ -242,6 +242,39 @@ class ComicSource {
     return !res.error;
   }
 
+  /// Get settings dynamically from JavaScript source.
+  /// This allows sources to use getters for dynamic settings that can change at runtime.
+  Map<String, Map<String, dynamic>>? getSettingsDynamic() {
+    try {
+      var value = JsEngine().runCode("ComicSource.sources.$key.settings");
+      if (value is Map) {
+        var newMap = <String, Map<String, dynamic>>{};
+        for (var e in value.entries) {
+          if (e.key is! String) {
+            continue;
+          }
+          var v = <String, dynamic>{};
+          for (var e2 in e.value.entries) {
+            if (e2.key is! String) {
+              continue;
+            }
+            var v2 = e2.value;
+            if (v2 is JSInvokable) {
+              v2 = JSAutoFreeFunction(v2);
+            }
+            v[e2.key] = v2;
+          }
+          newMap[e.key] = v;
+        }
+        return newMap;
+      }
+      return null;
+    } catch (e) {
+      Log.error("ComicSource", "Failed to get dynamic settings: $e");
+      return settings;
+    }
+  }
+
   ComicSource(
     this.name,
     this.key,

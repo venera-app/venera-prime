@@ -897,12 +897,15 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
   }
 
   Iterable<Widget> buildSourceSettings() sync* {
-    if (source.settings == null) {
+    // Try to get dynamic settings first (for getters), fall back to cached settings
+    var settingsMap = source.getSettingsDynamic() ?? source.settings;
+    
+    if (settingsMap == null) {
       return;
     } else if (source.data['settings'] == null) {
       source.data['settings'] = {};
     }
-    for (var item in source.settings!.entries) {
+    for (var item in settingsMap.entries) {
       var key = item.key;
       String type = item.value['type'];
       try {
