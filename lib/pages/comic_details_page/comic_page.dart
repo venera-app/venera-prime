@@ -145,6 +145,8 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   @override
   ComicDetails get comic => data!;
 
+  String get cover => comic.cover;
+
   void onScroll() {
     var offset =
         scrollController.position.pixels -
@@ -321,7 +323,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                 clipBehavior: Clip.antiAlias,
                 child: AnimatedImage(
                   image: CachedImageProvider(
-                    widget.cover ?? comic.cover,
+                    cover,
                     sourceKey: comic.sourceKey,
                     cid: comic.id,
                   ),
@@ -733,7 +735,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   void _viewCover(BuildContext context) {
     final imageProvider = CachedImageProvider(
-      widget.cover ?? comic.cover,
+      cover,
       sourceKey: comic.sourceKey,
       cid: comic.id,
     );
@@ -750,7 +752,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   void _saveCover(BuildContext context) async {
     try {
       final imageProvider = CachedImageProvider(
-        widget.cover ?? comic.cover,
+        cover,
         sourceKey: comic.sourceKey,
         cid: comic.id,
       );

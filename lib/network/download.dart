@@ -210,6 +210,125 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   var tasks = <int, _ImageDownloadWrapper>{};
 
+  Iterable<String> _requestedChapterIds() sync* {
+    var comicChapters = comic?.chapters;
+    if (comicChapters == null) {
+      return;
+    }
+    var selectedChapters = chapters?.toSet();
+    for (var chapterId in comicChapters.ids) {
+      if (selectedChapters == null || selectedChapters.contains(chapterId)) {
+        yield chapterId;
+      }
+    }
+  }
+
+  List<String> _chapterIdsNeedingImageList() {
+    if (comic?.chapters == null) {
+      return const [];
+    }
+    var images = _images;
+    return _requestedChapterIds()
+        .where((id) => images?[id]?.isNotEmpty != true)
+        .toList();
+  }
+
+  void _refreshTotalCount() {
+    _totalCount =
+        _images?.values.fold<int>(
+          0,
+          (total, images) => total + images.length,
+        ) ??
+        0;
+  }
+
+  Set<int> _downloadedPageIndexes(Directory directory, int expectedCount) {
+    if (!directory.existsSync()) {
+      return const {};
+    }
+    try {
+      var indexes = <int>{};
+      for (var entity in directory.listSync()) {
+        if (entity is! File) {
+          continue;
+        }
+        if (entity.name.startsWith('cover.') || entity.name.startsWith('.')) {
+          continue;
+        }
+        if (entity.lengthSync() == 0) {
+          continue;
+        }
+        var index = int.tryParse(entity.basenameWithoutExt);
+        if (index != null && index >= 0 && index < expectedCount) {
+          indexes.add(index);
+        }
+      }
+      return indexes;
+    } catch (e, s) {
+      Log.error("Download", "Failed to check downloaded files: $e", s);
+      return const {};
+    }
+  }
+
+  bool _hasDownloadedPages(Directory directory, int expectedCount) {
+    if (expectedCount == 0) {
+      return false;
+    }
+    return _downloadedPageIndexes(directory, expectedCount).length >=
+        expectedCount;
+  }
+
+  List<String> _downloadedChapterIds() {
+    if (comic?.chapters == null || path == null || _images == null) {
+      return [];
+    }
+    var downloadedChapters = <String>[];
+    for (var chapterId in _requestedChapterIds()) {
+      var images = _images![chapterId];
+      if (images == null || images.isEmpty) {
+        continue;
+      }
+      var directory = Directory(
+        FilePath.join(path!, LocalManager.getChapterDirectoryName(chapterId)),
+      );
+      if (_hasDownloadedPages(directory, images.length)) {
+        downloadedChapters.add(chapterId);
+      }
+    }
+    return downloadedChapters;
+  }
+
+  String? _downloadCompletionError() {
+    var images = _images;
+    if (images == null || images.isEmpty) {
+      return "Error: No image list found";
+    }
+    if (_totalCount == 0) {
+      return "Error: Image list is empty";
+    }
+    if (comic?.chapters == null) {
+      var pages = images[''];
+      if (pages == null || pages.isEmpty) {
+        return "Error: Image list is empty";
+      }
+      if (!_hasDownloadedPages(Directory(path!), pages.length)) {
+        return "Error: Downloaded images are incomplete";
+      }
+      return null;
+    }
+    var requestedChapters = _requestedChapterIds().toList();
+    if (requestedChapters.isEmpty) {
+      return "Error: No chapters to download";
+    }
+    if (_chapterIdsNeedingImageList().isNotEmpty) {
+      return "Error: Image list is incomplete";
+    }
+    if (_downloadedChapterIds().length != requestedChapters.length) {
+      return "Error: Downloaded chapters are incomplete";
+    }
+    return null;
+  }
+
   int get _maxConcurrentTasks =>
       (appdata.settings["downloadThreads"] as num).toInt();
 
@@ -343,7 +462,12 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       await LocalManager().saveCurrentDownloadingTasks();
     }
 
-    if (_images == null) {
+    var shouldFetchImages =
+        _images == null ||
+        (comic!.chapters == null
+            ? _images!['']?.isNotEmpty != true
+            : _chapterIdsNeedingImageList().isNotEmpty);
+    if (shouldFetchImages) {
       if (comic!.chapters == null) {
         _message = "Fetching image list...";
         notifyListeners();
@@ -364,22 +488,15 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           return;
         } else {
           _images = {'': res.data};
-          _totalCount = _images!['']!.length;
+          _refreshTotalCount();
         }
       } else {
-        _images = {};
-        _totalCount = 0;
+        _images ??= {};
+        _refreshTotalCount();
         int cpCount = 0;
-        int totalCpCount =
-            chapters?.length ?? comic!.chapters!.allChapters.length;
-        for (var i in comic!.chapters!.allChapters.keys) {
-          if (chapters != null && !chapters!.contains(i)) {
-            continue;
-          }
-          if (_images![i] != null) {
-            _totalCount += _images![i]!.length;
-            continue;
-          }
+        var chaptersNeedingImageList = _chapterIdsNeedingImageList();
+        int totalCpCount = chaptersNeedingImageList.length;
+        for (var i in chaptersNeedingImageList) {
           _message = "Fetching image list ($cpCount/$totalCpCount)...";
           notifyListeners();
           var res = await _runWithRetry(() async {
@@ -399,13 +516,17 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
             return;
           } else {
             _images![i] = res.data;
-            _totalCount += _images![i]!.length;
+            _refreshTotalCount();
           }
+          cpCount++;
         }
       }
+      _refreshTotalCount();
       _message = "$_downloadedCount/$_totalCount";
       notifyListeners();
       await LocalManager().saveCurrentDownloadingTasks();
+    } else {
+      _refreshTotalCount();
     }
 
     while (_chapter < _images!.length) {
@@ -430,6 +551,12 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       }
       _index = 0;
       _chapter++;
+    }
+
+    var completionError = _downloadCompletionError();
+    if (completionError != null) {
+      _setError(completionError);
+      return;
     }
 
     LocalManager().completeTask(this);
@@ -522,7 +649,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       chapters: comic!.chapters,
       cover: File(_cover!.split("file://").last).name,
       comicType: ComicType(source.key.hashCode),
-      downloadedChapters: chapters ?? comic?.chapters?.ids.toList() ?? [],
+      downloadedChapters: _downloadedChapterIds(),
       createdAt: DateTime.now(),
     );
   }
