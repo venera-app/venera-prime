@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:math';
 import 'dart:ffi' as ffi;
 
 import 'package:flutter/foundation.dart';
@@ -198,6 +197,8 @@ class HistoryManager with ChangeNotifier {
 
   bool isInitialized = false;
 
+  String _cacheKey(String id, HistoryType type) => "${type.value}:$id";
+
   Future<void> init() async {
     if (isInitialized) {
       return;
@@ -268,9 +269,9 @@ class HistoryManager with ChangeNotifier {
     if (_cachedHistoryIds == null) {
       updateCache();
     } else {
-      _cachedHistoryIds![newItem.id] = true;
+      _cachedHistoryIds![_cacheKey(newItem.id, newItem.type)] = true;
     }
-    cachedHistories[newItem.id] = newItem;
+    cachedHistories[_cacheKey(newItem.id, newItem.type)] = newItem;
     if (cachedHistories.length > 10) {
       cachedHistories.remove(cachedHistories.keys.first);
     }
@@ -297,9 +298,9 @@ class HistoryManager with ChangeNotifier {
     if (_cachedHistoryIds == null) {
       updateCache();
     } else {
-      _cachedHistoryIds![newItem.id] = true;
+      _cachedHistoryIds![_cacheKey(newItem.id, newItem.type)] = true;
     }
-    cachedHistories[newItem.id] = newItem;
+    cachedHistories[_cacheKey(newItem.id, newItem.type)] = newItem;
     if (cachedHistories.length > 10) {
       cachedHistories.remove(cachedHistories.keys.first);
     }
@@ -349,10 +350,13 @@ void clearUnfavoritedHistory() {
   void updateCache() {
     _cachedHistoryIds = {};
     var res = _db.select("""
-        select id from history;
+        select id, type from history;
       """);
     for (var element in res) {
-      _cachedHistoryIds![element["id"] as String] = true;
+      _cachedHistoryIds![_cacheKey(
+        element["id"] as String,
+        ComicType(element["type"] as int),
+      )] = true;
     }
     for (var key in cachedHistories.keys.toList()) {
       if (!_cachedHistoryIds!.containsKey(key)) {
@@ -365,11 +369,12 @@ void clearUnfavoritedHistory() {
     if (_cachedHistoryIds == null) {
       updateCache();
     }
-    if (!_cachedHistoryIds!.containsKey(id)) {
+    var cacheKey = _cacheKey(id, type);
+    if (!_cachedHistoryIds!.containsKey(cacheKey)) {
       return null;
     }
-    if (cachedHistories.containsKey(id)) {
-      return cachedHistories[id];
+    if (cachedHistories.containsKey(cacheKey)) {
+      return cachedHistories[cacheKey];
     }
 
     var res = _db.select("""
