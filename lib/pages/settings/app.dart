@@ -157,6 +157,13 @@ class _AppSettingsState extends State<AppSettings> {
             App.forceRebuild();
           },
         ).toSliver(),
+        _SwitchSetting(
+          title: "Convert Traditional Chinese to Simplified".tl,
+          settingKey: "convertTraditionalToSimplified",
+          onChanged: () {
+            App.forceRebuild();
+          },
+        ).toSliver(),
         if (!App.isLinux)
           _SwitchSetting(
             title: "Authorization Required".tl,

@@ -117,7 +117,7 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Center(
                             child: Text(
-                              value,
+                              value.displayText,
                               maxLines: 1,
                               textAlign: TextAlign.center,
                               overflow: TextOverflow.ellipsis,
@@ -273,7 +273,9 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
               child: AppTabBar(
                 withUnderLine: false,
                 controller: tabController,
-                tabs: chapters.groups.map((e) => Tab(text: e)).toList(),
+                tabs: chapters.groups
+                    .map((e) => Tab(text: e.displayText))
+                    .toList(),
               ),
             ),
             SliverPadding(padding: const EdgeInsets.only(top: 8)),
@@ -313,7 +315,7 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Center(
                             child: Text(
-                              value,
+                              value.displayText,
                               maxLines: 1,
                               textAlign: TextAlign.center,
                               overflow: TextOverflow.ellipsis,

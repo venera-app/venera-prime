@@ -356,7 +356,7 @@ class ComicTile extends StatelessWidget {
                               maxWidth: constraints.maxWidth,
                             ),
                             child: Text(
-                              line,
+                              line.displayText,
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
                                 fontSize: fortSize,
@@ -381,7 +381,7 @@ class ComicTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
                 child: Text(
-                  comic.title.replaceAll('\n', ''),
+                  comic.title.replaceAll('\n', '').displayText,
                   maxLines: 1,
                   overflow: TextOverflow.clip,
                   style: const TextStyle(
@@ -533,19 +533,20 @@ class _ComicDescription extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (tags != null) {
-      tags!.removeWhere((element) => element.removeAllBlank == "");
-      for (var s in tags!) {
-        s = s.replaceAll("\n", " ");
-      }
-    }
+    final displayTitle = title.trim().displayText;
+    final displaySubtitle = subtitle.displayText;
+    final displayDescription = description.displayText;
+    final displayTags = tags
+        ?.where((element) => element.removeAllBlank != "")
+        .map((e) => e.replaceAll("\n", " "))
+        .toList();
     var enableTranslate =
         App.locale.languageCode == 'zh' && this.enableTranslate;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          title.trim(),
+          displayTitle,
           style: const TextStyle(
             fontWeight: FontWeight.w500,
             fontSize: 14.0,
@@ -556,7 +557,7 @@ class _ComicDescription extends StatelessWidget {
         ),
         if (subtitle != "")
           Text(
-            subtitle,
+            displaySubtitle,
             style: TextStyle(
                 fontSize: 10.0,
                 color: context.colorScheme.onSurface.toOpacity(0.7)),
@@ -565,7 +566,7 @@ class _ComicDescription extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         const SizedBox(height: 4),
-        if (tags != null && tags!.isNotEmpty)
+        if (displayTags != null && displayTags.isNotEmpty)
           Expanded(
             child: LayoutBuilder(builder: (context, constraints) {
               if (constraints.maxHeight < 22) {
@@ -584,7 +585,7 @@ class _ComicDescription extends StatelessWidget {
                   spacing: 4,
                   runSpacing: 3,
                   children: [
-                    for (var s in tags!)
+                    for (var s in displayTags)
                       Container(
                         height: 21,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -600,9 +601,10 @@ class _ComicDescription extends StatelessWidget {
                         child: Center(
                           widthFactor: 1,
                           child: Text(
-                            enableTranslate
-                                ? TagsTranslation.translateTag(s)
-                                : s.split(':').last,
+                            (enableTranslate
+                                    ? TagsTranslation.translateTag(s)
+                                    : s.split(':').last)
+                                .displayText,
                             style: const TextStyle(fontSize: 12),
                             softWrap: true,
                             overflow: TextOverflow.ellipsis,
@@ -626,11 +628,13 @@ class _ComicDescription extends StatelessWidget {
                 children: [
                   if (rating != null) StarRating(value: rating!, size: 18),
                   Text(
-                    description,
+                    displayDescription,
                     style: const TextStyle(
                       fontSize: 12.0,
                     ),
-                    maxLines: (tags == null || tags!.isEmpty) ? 3 : 2,
+                    maxLines: (displayTags == null || displayTags.isEmpty)
+                        ? 3
+                        : 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -1695,7 +1699,7 @@ class SimpleComicTile extends StatelessWidget {
             width: 92,
             child: Center(
               child: Text(
-                comic.title.replaceAll('\n', ''),
+                comic.title.replaceAll('\n', '').displayText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
