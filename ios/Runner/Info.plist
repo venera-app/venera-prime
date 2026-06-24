@@ -47,6 +47,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
   <string>Choose images</string>
+	<key>NSCameraUsageDescription</key>
+  <string>Scan WebDAV configuration QR codes</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

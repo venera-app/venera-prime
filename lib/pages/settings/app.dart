@@ -13,10 +13,7 @@ class _AppSettingsState extends State<AppSettings> {
     return SmoothCustomScrollView(
       slivers: [
         SliverAppbar(title: Text("App".tl)),
-        _SettingPartTitle(
-          title: "Data".tl,
-          icon: Icons.storage,
-        ),
+        _SettingPartTitle(title: "Data".tl, icon: Icons.storage),
         ListTile(
           title: Text("Storage Path for local comics".tl),
           subtitle: Text(LocalManager().path, softWrap: false),
@@ -112,8 +109,9 @@ class _AppSettingsState extends State<AppSettings> {
             var controller = showLoadingDialog(context);
             var file = await selectFile(ext: ['venera', 'picadata']);
             if (file != null) {
-              var cacheFile =
-                  File(FilePath.join(App.cachePath, "import_data_temp"));
+              var cacheFile = File(
+                FilePath.join(App.cachePath, "import_data_temp"),
+              );
               await file.saveTo(cacheFile.path);
               try {
                 if (file.name.endsWith('picadata')) {
@@ -140,10 +138,18 @@ class _AppSettingsState extends State<AppSettings> {
           },
           actionTitle: 'Set'.tl,
         ).toSliver(),
-        _SettingPartTitle(
-          title: "User".tl,
-          icon: Icons.person_outline,
-        ),
+        _CallbackSetting(
+          title: "WebDAV config QR code".tl,
+          subtitle: "Quickly migrate WebDAV settings to another device.".tl,
+          callback: showWebdavConfigQrCode,
+          actionTitle: 'Show'.tl,
+        ).toSliver(),
+        _CallbackSetting(
+          title: "Scan WebDAV config QR code".tl,
+          callback: scanWebdavConfigQrCode,
+          actionTitle: 'Scan'.tl,
+        ).toSliver(),
+        _SettingPartTitle(title: "User".tl, icon: Icons.person_outline),
         SelectSetting(
           title: "Language".tl,
           settingKey: "language",
@@ -174,7 +180,8 @@ class _AppSettingsState extends State<AppSettings> {
                 final auth = LocalAuthentication();
                 final bool canAuthenticateWithBiometrics =
                     await auth.canCheckBiometrics;
-                final bool canAuthenticate = canAuthenticateWithBiometrics ||
+                final bool canAuthenticate =
+                    canAuthenticateWithBiometrics ||
                     await auth.isDeviceSupported();
                 if (!canAuthenticate) {
                   context.showMessage(message: "Biometrics not supported".tl);
@@ -188,6 +195,271 @@ class _AppSettingsState extends State<AppSettings> {
             },
           ).toSliver(),
       ],
+    );
+  }
+
+  void showWebdavConfigQrCode() {
+    var config = _WebdavQrConfig.fromCurrentSettings();
+    if (!config.isValid) {
+      context.showMessage(message: "WebDAV is not configured.".tl);
+      return;
+    }
+    _showWebdavConfigQrCodeDialog(context, config);
+  }
+
+  Future<void> scanWebdavConfigQrCode() async {
+    if (App.isWindows || App.isLinux) {
+      context.showMessage(
+        message: "QR scanning is not supported on this platform.".tl,
+      );
+      return;
+    }
+    var config = await context.to<_WebdavQrConfig>(
+      () => const _WebdavQrScannerPage(),
+    );
+    if (!mounted || config == null) {
+      return;
+    }
+    await _applyWebdavQrConfig(config);
+    context.showMessage(message: "WebDAV configuration imported.".tl);
+    setState(() {});
+  }
+
+  Future<void> _applyWebdavQrConfig(_WebdavQrConfig config) async {
+    appdata.settings['webdav'] = [config.url, config.user, config.pass];
+    appdata.settings['disableSyncFields'] = config.disableSync;
+    appdata.implicitData['webdavAutoSync'] = config.autoSync;
+    appdata.writeImplicitData();
+    await appdata.saveData(false);
+  }
+}
+
+void _showWebdavConfigQrCodeDialog(
+  BuildContext context,
+  _WebdavQrConfig config,
+) {
+  var data = config.toQrData();
+  showDialog(
+    context: context,
+    builder: (context) {
+      return ContentDialog(
+        title: "WebDAV config QR code".tl,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Scan this QR code on another device to import the WebDAV configuration."
+                  .tl,
+            ).paddingHorizontal(16),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: QrImageView(
+                data: data,
+                version: QrVersions.auto,
+                size: math.min(context.width - 96, 280),
+                backgroundColor: Colors.white,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+              ),
+            ).toCenter(),
+            const SizedBox(height: 12),
+            Text(
+              "The QR code contains your WebDAV password. Only show it to trusted devices."
+                  .tl,
+              style: ts.s14,
+            ).paddingHorizontal(16),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: data));
+              context.showMessage(message: "Copied to clipboard".tl);
+            },
+            child: Text("Copy".tl),
+          ),
+          TextButton(onPressed: context.pop, child: Text("Close".tl)),
+        ],
+      );
+    },
+  );
+}
+
+class _WebdavQrConfig {
+  const _WebdavQrConfig({
+    required this.url,
+    required this.user,
+    required this.pass,
+    required this.disableSync,
+    required this.autoSync,
+  });
+
+  static const _type = "venera.webdav";
+  static const _version = 1;
+
+  final String url;
+  final String user;
+  final String pass;
+  final String disableSync;
+  final bool autoSync;
+
+  bool get isValid => url.trim().isNotEmpty;
+
+  factory _WebdavQrConfig.fromCurrentSettings() {
+    var configs = appdata.settings['webdav'];
+    var url = "";
+    var user = "";
+    var pass = "";
+    if (configs is List && configs.whereType<String>().length == 3) {
+      url = configs[0];
+      user = configs[1];
+      pass = configs[2];
+    }
+    var disableSync = appdata.settings['disableSyncFields'];
+    return _WebdavQrConfig(
+      url: url,
+      user: user,
+      pass: pass,
+      disableSync: disableSync is String ? disableSync : "",
+      autoSync: appdata.implicitData['webdavAutoSync'] ?? true,
+    );
+  }
+
+  factory _WebdavQrConfig.fromFields({
+    required String url,
+    required String user,
+    required String pass,
+    required String disableSync,
+    required bool autoSync,
+  }) {
+    return _WebdavQrConfig(
+      url: url,
+      user: user,
+      pass: pass,
+      disableSync: disableSync,
+      autoSync: autoSync,
+    );
+  }
+
+  String toQrData() {
+    return jsonEncode({
+      "type": _type,
+      "version": _version,
+      "webdav": {
+        "url": url,
+        "user": user,
+        "pass": pass,
+        "autoSync": autoSync,
+        "disableSyncFields": disableSync,
+      },
+    });
+  }
+
+  static _WebdavQrConfig? tryParse(String data) {
+    try {
+      var json = jsonDecode(data);
+      if (json is! Map ||
+          json["type"] != _type ||
+          json["version"] != _version ||
+          json["webdav"] is! Map) {
+        return null;
+      }
+      var webdav = json["webdav"] as Map;
+      var url = webdav["url"];
+      var user = webdav["user"];
+      var pass = webdav["pass"];
+      if (url is! String || user is! String || pass is! String) {
+        return null;
+      }
+      var disableSync = webdav["disableSyncFields"];
+      var autoSync = webdav["autoSync"];
+      return _WebdavQrConfig(
+        url: url,
+        user: user,
+        pass: pass,
+        disableSync: disableSync is String ? disableSync : "",
+        autoSync: autoSync is bool ? autoSync : true,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class _WebdavQrScannerPage extends StatefulWidget {
+  const _WebdavQrScannerPage();
+
+  @override
+  State<_WebdavQrScannerPage> createState() => _WebdavQrScannerPageState();
+}
+
+class _WebdavQrScannerPageState extends State<_WebdavQrScannerPage> {
+  final controller = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
+
+  bool handled = false;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void handleDetect(BarcodeCapture capture) {
+    if (handled) {
+      return;
+    }
+    for (var barcode in capture.barcodes) {
+      var data = barcode.rawValue;
+      if (data == null) {
+        continue;
+      }
+      var config = _WebdavQrConfig.tryParse(data);
+      if (config == null || !config.isValid) {
+        context.showMessage(message: "Invalid WebDAV config QR code.".tl);
+        continue;
+      }
+      handled = true;
+      controller.stop();
+      context.pop(config);
+      return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: Appbar(title: Text("Scan WebDAV config QR code".tl)),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: controller,
+            onDetect: handleDetect,
+            onDetectError: (error, stackTrace) {
+              context.showMessage(message: error.toString());
+            },
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              color: Colors.black.withValues(alpha: 0.6),
+              child: Text(
+                "Point the camera at a Venera WebDAV config QR code.".tl,
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -212,62 +484,72 @@ class _LogsPageState extends State<LogsPage> {
         title: Text("Logs".tl),
         actions: [
           IconButton(
-              onPressed: () => setState(() {
-                    final RelativeRect position = RelativeRect.fromLTRB(
-                      MediaQuery.of(context).size.width,
-                      MediaQuery.of(context).padding.top + kToolbarHeight,
-                      0.0,
-                      0.0,
-                    );
-                    showMenu(context: context, position: position, items: [
-                      PopupMenuItem(
-                          child: Text("all"),
-                          onTap: () => setState(() => logLevelToShow = "all")
-                      ),
-                      PopupMenuItem(
-                          child: Text("info"),
-                          onTap: () => setState(() => logLevelToShow = "info")
-                      ),
-                      PopupMenuItem(
-                          child: Text("warning"),
-                          onTap: () => setState(() => logLevelToShow = "warning")
-                      ),
-                      PopupMenuItem(
-                          child: Text("error"),
-                          onTap: () => setState(() => logLevelToShow = "error")
-                      ),
-                    ]);
-              }),
-              icon: const Icon(Icons.filter_list_outlined)
+            onPressed: () => setState(() {
+              final RelativeRect position = RelativeRect.fromLTRB(
+                MediaQuery.of(context).size.width,
+                MediaQuery.of(context).padding.top + kToolbarHeight,
+                0.0,
+                0.0,
+              );
+              showMenu(
+                context: context,
+                position: position,
+                items: [
+                  PopupMenuItem(
+                    child: Text("all"),
+                    onTap: () => setState(() => logLevelToShow = "all"),
+                  ),
+                  PopupMenuItem(
+                    child: Text("info"),
+                    onTap: () => setState(() => logLevelToShow = "info"),
+                  ),
+                  PopupMenuItem(
+                    child: Text("warning"),
+                    onTap: () => setState(() => logLevelToShow = "warning"),
+                  ),
+                  PopupMenuItem(
+                    child: Text("error"),
+                    onTap: () => setState(() => logLevelToShow = "error"),
+                  ),
+                ],
+              );
+            }),
+            icon: const Icon(Icons.filter_list_outlined),
           ),
           IconButton(
-              onPressed: () => setState(() {
-                    final RelativeRect position = RelativeRect.fromLTRB(
-                      MediaQuery.of(context).size.width,
-                      MediaQuery.of(context).padding.top + kToolbarHeight,
-                      0.0,
-                      0.0,
-                    );
-                    showMenu(context: context, position: position, items: [
-                      PopupMenuItem(
-                        child: Text("Clear".tl),
-                        onTap: () => setState(() => Log.clear()),
-                      ),
-                      PopupMenuItem(
-                        child: Text("Disable Length Limitation".tl),
-                        onTap: () {
-                          Log.ignoreLimitation = true;
-                          context.showMessage(
-                              message: "Only valid for this run".tl);
-                        },
-                      ),
-                      PopupMenuItem(
-                        child: Text("Export".tl),
-                        onTap: () => saveLog(Log().toString()),
-                      ),
-                    ]);
-                  }),
-              icon: const Icon(Icons.more_horiz))
+            onPressed: () => setState(() {
+              final RelativeRect position = RelativeRect.fromLTRB(
+                MediaQuery.of(context).size.width,
+                MediaQuery.of(context).padding.top + kToolbarHeight,
+                0.0,
+                0.0,
+              );
+              showMenu(
+                context: context,
+                position: position,
+                items: [
+                  PopupMenuItem(
+                    child: Text("Clear".tl),
+                    onTap: () => setState(() => Log.clear()),
+                  ),
+                  PopupMenuItem(
+                    child: Text("Disable Length Limitation".tl),
+                    onTap: () {
+                      Log.ignoreLimitation = true;
+                      context.showMessage(
+                        message: "Only valid for this run".tl,
+                      );
+                    },
+                  ),
+                  PopupMenuItem(
+                    child: Text("Export".tl),
+                    onTap: () => saveLog(Log().toString()),
+                  ),
+                ],
+              );
+            }),
+            icon: const Icon(Icons.more_horiz),
+          ),
         ],
       ),
       body: ListView.builder(
@@ -286,51 +568,56 @@ class _LogsPageState extends State<LogsPage> {
                     children: [
                       Container(
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
-                          borderRadius:
-                              const BorderRadius.all(Radius.circular(16)),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(16),
+                          ),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
                           child: Text(logToShow[index].title),
                         ),
                       ),
-                      const SizedBox(
-                        width: 3,
-                      ),
+                      const SizedBox(width: 3),
                       Container(
                         decoration: BoxDecoration(
                           color: [
                             Theme.of(context).colorScheme.error,
                             Theme.of(context).colorScheme.errorContainer,
-                            Theme.of(context).colorScheme.primaryContainer
+                            Theme.of(context).colorScheme.primaryContainer,
                           ][logToShow[index].level.index],
-                          borderRadius:
-                              const BorderRadius.all(Radius.circular(16)),
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(16),
+                          ),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
                           child: Text(
                             logToShow[index].level.name,
                             style: TextStyle(
-                                color: logToShow[index].level.index == 0
-                                    ? Colors.white
-                                    : Colors.black),
+                              color: logToShow[index].level.index == 0
+                                  ? Colors.white
+                                  : Colors.black,
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
                   Text(logToShow[index].content),
-                  Text(logToShow[index].time
-                      .toString()
-                      .replaceAll(RegExp(r"\.\w+"), "")),
+                  Text(
+                    logToShow[index].time.toString().replaceAll(
+                      RegExp(r"\.\w+"),
+                      "",
+                    ),
+                  ),
                   TextButton(
                     onPressed: () {
                       Clipboard.setData(
-                          ClipboardData(text: logToShow[index].content));
+                        ClipboardData(text: logToShow[index].content),
+                      );
                     },
                     child: Text("Copy".tl),
                   ),
@@ -394,6 +681,46 @@ class _WebdavSettingState extends State<_WebdavSetting> {
     });
   }
 
+  _WebdavQrConfig get currentConfig => _WebdavQrConfig.fromFields(
+    url: url,
+    user: user,
+    pass: pass,
+    disableSync: disableSync,
+    autoSync: autoSync,
+  );
+
+  void showQrCode() {
+    var config = currentConfig;
+    if (!config.isValid) {
+      context.showMessage(message: "WebDAV is not configured.".tl);
+      return;
+    }
+    _showWebdavConfigQrCodeDialog(context, config);
+  }
+
+  Future<void> scanQrCode() async {
+    if (App.isWindows || App.isLinux) {
+      context.showMessage(
+        message: "QR scanning is not supported on this platform.".tl,
+      );
+      return;
+    }
+    var config = await context.to<_WebdavQrConfig>(
+      () => const _WebdavQrScannerPage(),
+    );
+    if (!mounted || config == null) {
+      return;
+    }
+    setState(() {
+      url = config.url;
+      user = config.user;
+      pass = config.pass;
+      disableSync = config.disableSync;
+      autoSync = config.autoSync;
+    });
+    context.showMessage(message: "WebDAV configuration imported.".tl);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopUpWidgetScaffold(
@@ -430,6 +757,26 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               onChanged: (value) => pass = value,
             ),
             const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.qr_code_2),
+                    label: Text("Config QR code".tl),
+                    onPressed: showQrCode,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: Text("Scan config".tl),
+                    onPressed: scanQrCode,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             TextField(
               decoration: InputDecoration(
                 labelText: "Skip Setting Fields (Optional)".tl,
@@ -448,7 +795,8 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "When sync data, skip certain setting fields, which means these won't be uploaded / override.".tl,
+                              "When sync data, skip certain setting fields, which means these won't be uploaded / override."
+                                  .tl,
                             ),
                             const SizedBox(height: 12),
                             Row(
@@ -463,7 +811,9 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                                   child: IconButton(
                                     icon: const Icon(Icons.open_in_new),
                                     onPressed: () {
-                                      launchUrlString("https://github.com/venera-app/venera/blob/b08f11f6ac49bd07d34b4fcde233ed07e86efbc9/lib/foundation/appdata.dart#L138");
+                                      launchUrlString(
+                                        "https://github.com/venera-app/venera/blob/b08f11f6ac49bd07d34b4fcde233ed07e86efbc9/lib/foundation/appdata.dart#L138",
+                                      );
                                     },
                                   ),
                                 ),
@@ -484,10 +834,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               leading: Icon(Icons.sync),
               title: Text("Auto Sync Data".tl),
               contentPadding: EdgeInsets.zero,
-              trailing: Switch(
-                value: autoSync,
-                onChanged: onAutoSyncChanged,
-              ),
+              trailing: Switch(value: autoSync, onChanged: onAutoSyncChanged),
             ),
             const SizedBox(height: 12),
             RadioGroup<bool>(
@@ -500,13 +847,9 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               child: Row(
                 children: [
                   Text("Operation".tl),
-                  Radio<bool>(
-                    value: true,
-                  ),
+                  Radio<bool>(value: true),
                   Text("Upload".tl),
-                  Radio<bool>(
-                    value: false,
-                  ),
+                  Radio<bool>(value: false),
                   Text("Download".tl),
                 ],
               ),
@@ -527,8 +870,9 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                                "Once the operation is successful, app will automatically sync data with the server."
-                                    .tl),
+                              "Once the operation is successful, app will automatically sync data with the server."
+                                  .tl,
+                            ),
                           ),
                         ],
                       ),
@@ -591,7 +935,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                 },
                 child: Text("Continue".tl),
               ),
-            )
+            ),
           ],
         ).paddingHorizontal(16),
       ),

@@ -75,6 +75,10 @@ abstract class DownloadTask with ChangeNotifier {
 }
 
 class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
+  // 1x1 transparent PNG used to keep page order when an image is skipped.
+  static const _skippedImagePlaceholderBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+
   final ComicSource source;
 
   final String comicId;
@@ -208,6 +212,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   /// Current downloading chapter, index of [_images]
   int _chapter = 0;
+
+  int _skippedImageCount = 0;
 
   var tasks = <int, _ImageDownloadWrapper>{};
 
@@ -351,6 +357,59 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           (total, images) => total + images.length,
         ) ??
         0;
+  }
+
+  int _countDownloadedPagesOnDisk() {
+    var images = _images;
+    if (path == null || images == null) {
+      return 0;
+    }
+    var total = 0;
+    if (comic?.chapters == null) {
+      var pages = images[''];
+      if (pages != null) {
+        total += _downloadedPageIndexes(Directory(path!), pages.length).length;
+      }
+      return total;
+    }
+    for (var chapterId in _requestedChapterIds()) {
+      var pages = images[chapterId];
+      if (pages == null) {
+        continue;
+      }
+      total += _downloadedPageIndexes(
+        _chapterDirectory(chapterId),
+        pages.length,
+      ).length;
+    }
+    return total;
+  }
+
+  void _refreshDownloadedCountFromDisk() {
+    _downloadedCount = _countDownloadedPagesOnDisk();
+  }
+
+  String _formatDownloadProgressMessage() {
+    var message = "$_downloadedCount/$_totalCount";
+    if (_skippedImageCount > 0) {
+      message += " ($_skippedImageCount skipped)";
+    }
+    return message;
+  }
+
+  Future<void> _writeSkippedImagePlaceholder(
+    Directory saveTo,
+    int index,
+    Object error,
+  ) async {
+    if (!saveTo.existsSync()) {
+      saveTo.createSync(recursive: true);
+    }
+    var file = saveTo.joinFile("$index.png");
+    await file.writeAsBytes(base64Decode(_skippedImagePlaceholderBase64));
+    var errorFile = saveTo.joinFile(".$index.error.txt");
+    await errorFile.writeAsString(error.toString());
+    _skippedImageCount++;
   }
 
   Set<int> _downloadedPageIndexes(Directory directory, int expectedCount) {
@@ -498,14 +557,17 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     if (comic == null) {
       _message = "Fetching comic info...";
       notifyListeners();
-      var res = await _runWithRetry(() async {
-        var r = await source.loadComicInfo!(comicId);
-        if (r.error) {
-          throw r.errorMessage!;
-        } else {
-          return r.data;
-        }
-      });
+      var res = await _runWithRetry(
+        () async {
+          var r = await source.loadComicInfo!(comicId);
+          if (r.error) {
+            throw r.errorMessage!;
+          } else {
+            return r.data;
+          }
+        },
+        shouldContinue: () => _isRunning,
+      );
       if (!_isRunning) {
         return;
       }
@@ -543,22 +605,28 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     if (_cover == null) {
       _message = "Downloading cover...";
       notifyListeners();
-      var res = await _runWithRetry(() async {
-        Uint8List? data;
-        await for (var progress
-            in ImageDownloader.loadThumbnail(comic!.cover, source.key)) {
-          if (progress.imageBytes != null) {
-            data = progress.imageBytes;
+      var res = await _runWithRetry(
+        () async {
+          Uint8List? data;
+          await for (var progress
+              in ImageDownloader.loadThumbnail(comic!.cover, source.key)) {
+            if (progress.imageBytes != null) {
+              data = progress.imageBytes;
+            }
           }
-        }
-        if (data == null) {
-          throw "Failed to download cover";
-        }
-        var fileType = detectFileType(data);
-        var file = File(FilePath.join(path!, "cover${fileType.ext}"));
-        file.writeAsBytesSync(data);
-        return "file://${file.path}";
-      });
+          if (data == null) {
+            throw "Failed to download cover";
+          }
+          var fileType = detectFileType(data);
+          var file = File(FilePath.join(path!, "cover${fileType.ext}"));
+          file.writeAsBytesSync(data);
+          return "file://${file.path}";
+        },
+        shouldContinue: () => _isRunning,
+      );
+      if (!_isRunning) {
+        return;
+      }
       if (res.error) {
         Log.error("Download", res.errorMessage!);
         _setError("Error: ${res.errorMessage}");
@@ -579,14 +647,17 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       if (comic!.chapters == null) {
         _message = "Fetching image list...";
         notifyListeners();
-        var res = await _runWithRetry(() async {
-          var r = await source.loadComicPages!(comicId, null);
-          if (r.error) {
-            throw r.errorMessage!;
-          } else {
-            return r.data;
-          }
-        });
+        var res = await _runWithRetry(
+          () async {
+            var r = await source.loadComicPages!(comicId, null);
+            if (r.error) {
+              throw r.errorMessage!;
+            } else {
+              return r.data;
+            }
+          },
+          shouldContinue: () => _isRunning,
+        );
         if (!_isRunning) {
           return;
         }
@@ -607,14 +678,17 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         for (var i in chaptersNeedingImageList) {
           _message = "Fetching image list ($cpCount/$totalCpCount)...";
           notifyListeners();
-          var res = await _runWithRetry(() async {
-            var r = await source.loadComicPages!(comicId, i);
-            if (r.error) {
-              throw r.errorMessage!;
-            } else {
-              return r.data;
-            }
-          });
+          var res = await _runWithRetry(
+            () async {
+              var r = await source.loadComicPages!(comicId, i);
+              if (r.error) {
+                throw r.errorMessage!;
+              } else {
+                return r.data;
+              }
+            },
+            shouldContinue: () => _isRunning,
+          );
           if (!_isRunning) {
             return;
           }
@@ -630,12 +704,15 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         }
       }
       _refreshTotalCount();
-      _message = "$_downloadedCount/$_totalCount";
+      _message = _formatDownloadProgressMessage();
       notifyListeners();
       await LocalManager().saveCurrentDownloadingTasks();
     } else {
       _refreshTotalCount();
     }
+    _refreshDownloadedCountFromDisk();
+    _message = _formatDownloadProgressMessage();
+    notifyListeners();
 
     while (_chapter < _images!.length) {
       var images = _images![_images!.keys.elementAt(_chapter)]!;
@@ -649,7 +726,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         if (downloadedPages.contains(_index)) {
           _index++;
           _downloadedCount++;
-          _message = "$_downloadedCount/$_totalCount";
+          _message = _formatDownloadProgressMessage();
           await LocalManager().saveCurrentDownloadingTasks();
           continue;
         }
@@ -664,10 +741,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           _setError("Error: ${task.error}");
           return;
         }
+        if (task.skippedError != null) {
+          Log.error("Download", "Skipped image: ${task.skippedError}");
+        }
         _index++;
         _downloadedCount++;
         downloadedPages.add(task.index);
-        _message = "$_downloadedCount/$_totalCount";
+        _message = _formatDownloadProgressMessage();
         await LocalManager().saveCurrentDownloadingTasks();
       }
       _index = 0;
@@ -717,6 +797,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       "cover": _cover,
       "images": _images,
       "downloadedCount": _downloadedCount,
+      "skippedImageCount": _skippedImageCount,
       "totalCount": _totalCount,
       "index": _index,
       "chapter": _chapter,
@@ -747,6 +828,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       .._cover = json["cover"]
       .._images = images
       .._downloadedCount = json["downloadedCount"]
+      .._skippedImageCount = json["skippedImageCount"] ?? 0
       .._totalCount = json["totalCount"]
       .._index = json["index"]
       .._chapter = json["chapter"];
@@ -788,16 +870,22 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   int get hashCode => Object.hash(comicId, source.key);
 }
 
-Future<Res<T>> _runWithRetry<T>(Future<T> Function() task,
-    {int retry = 3}) async {
+Future<Res<T>> _runWithRetry<T>(
+  Future<T> Function() task, {
+  int retry = 6,
+  bool Function()? shouldContinue,
+}) async {
   for (var i = 0; i < retry; i++) {
+    if (shouldContinue != null && !shouldContinue()) {
+      return const Res.error("Canceled");
+    }
     try {
       return Res(await task());
     } catch (e) {
       if (i == retry - 1) {
         return Res.error(e.toString());
       }
-      await Future.delayed(Duration(seconds: i + 1));
+      await Future.delayed(Duration(seconds: (i + 1).clamp(1, 30)));
     }
   }
   throw UnimplementedError();
@@ -828,6 +916,8 @@ class _ImageDownloadWrapper {
 
   String? error;
 
+  String? skippedError;
+
   bool isCancelled = false;
 
   void cancel() {
@@ -842,7 +932,7 @@ class _ImageDownloadWrapper {
 
   var completers = <Completer<_ImageDownloadWrapper>>[];
 
-  var retry = 3;
+  var retry = 6;
 
   Future<void>? _pendingWrite;
 
@@ -891,12 +981,32 @@ class _ImageDownloadWrapper {
       Log.error("Download", e.toString(), s);
       retry--;
       if (retry > 0) {
-        start();
+        unawaited(
+          Future.delayed(Duration(seconds: _retryDelaySeconds())).then(
+            (_) {
+              if (!isCancelled) {
+                start();
+              }
+            },
+          ),
+        );
         return;
       }
-      error = e.toString();
+      try {
+        await task._writeSkippedImagePlaceholder(saveTo, index, e);
+        skippedError = e.toString();
+        isComplete = true;
+      } catch (writeError, stackTrace) {
+        Log.error("Download", writeError.toString(), stackTrace);
+        error = "$e\nFailed to write skipped image placeholder: $writeError";
+      }
       _completeWaiters();
     }
+  }
+
+  int _retryDelaySeconds() {
+    var usedRetries = 6 - retry;
+    return usedRetries.clamp(1, 30);
   }
 
   Future<_ImageDownloadWrapper> wait() {
