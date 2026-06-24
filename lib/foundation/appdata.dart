@@ -316,6 +316,9 @@ class Settings with ChangeNotifier {
     'comicSourceListUrl': _defaultSourceListUrl,
     'preloadImageCount': 4,
     'followUpdatesFolder': null,
+    'followUpdatesCheckOnStart': true,
+    'followUpdatesCheckIntervalHours': 24,
+    'followUpdatesCheckFixedTime': '',
     'initialPage': '0',
     'comicListDisplayMode': 'paging', // paging, continuous
     'showPageNumberInReader': true,
