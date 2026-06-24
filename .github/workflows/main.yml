@@ -101,9 +101,9 @@ jobs:
       - run: flutter pub get
       - run: flutter build ios --release --no-codesign
       - run: |
-          mkdir -p /Users/runner/work/venera/venera/build/ios/iphoneos/Payload
-          mv /Users/runner/work/venera/venera/build/ios/iphoneos/Runner.app /Users/runner/work/venera/venera/build/ios/iphoneos/Payload
-          cd /Users/runner/work/venera/venera/build/ios/iphoneos/
+          mkdir -p /Users/runner/work/venera-prime/venera-prime/build/ios/iphoneos/Payload
+          mv /Users/runner/work/venera-prime/venera-prime/build/ios/iphoneos/Runner.app /Users/runner/work/venera-prime/venera-prime/build/ios/iphoneos/Payload
+          cd /Users/runner/work/venera-prime/venera-prime/build/ios/iphoneos/
           zip -r venera-ios.ipa Payload
       - name: Add version to filename
         run: |
