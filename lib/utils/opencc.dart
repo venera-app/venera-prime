@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
+import 'package:venera/foundation/appdata.dart';
 
 abstract class OpenCC {
   static late final Map<int, int> _s2t;
@@ -64,4 +65,15 @@ abstract class OpenCC {
     }
     return sb.toString();
   }
+
+  static String displayText(String text) {
+    if (appdata.settings['convertTraditionalToSimplified'] == true) {
+      return traditionalToSimplified(text);
+    }
+    return text;
+  }
+}
+
+extension OpenCCDisplayText on String {
+  String get displayText => OpenCC.displayText(this);
 }

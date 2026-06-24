@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:flutter/widgets.dart' show ChangeNotifier;
@@ -210,6 +211,116 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   var tasks = <int, _ImageDownloadWrapper>{};
 
+  static const _downloadInfoFileName = ".venera_download.json";
+
+  bool _isThisTaskInfo(Map<String, dynamic> info) {
+    return info["id"] == comicId && info["type"] == comicType.value;
+  }
+
+  Future<Directory?> _findReusableDirectory() async {
+    if (comic == null) {
+      return null;
+    }
+    var existingLocal = LocalManager().find(comicId, comicType);
+    if (existingLocal != null) {
+      return Directory(
+        FilePath.join(LocalManager().path, existingLocal.directory),
+      );
+    }
+    try {
+      await for (var entity in Directory(LocalManager().path).list()) {
+        if (entity is! Directory) {
+          continue;
+        }
+        var infoFile = entity.joinFile(_downloadInfoFileName);
+        if (!await infoFile.exists()) {
+          continue;
+        }
+        try {
+          var info = jsonDecode(await infoFile.readAsString());
+          if (info is Map<String, dynamic> && _isThisTaskInfo(info)) {
+            return entity;
+          }
+        } catch (e, s) {
+          Log.error(
+            "Download",
+            "Failed to read download info ${infoFile.path}: $e",
+            s,
+          );
+        }
+      }
+    } catch (e, s) {
+      Log.error("Download", "Failed to find reusable directory: $e", s);
+    }
+
+    try {
+      const comicDirectoryMaxLength = 80;
+      var directoryTitle = comic!.title;
+      if (directoryTitle.length > comicDirectoryMaxLength) {
+        directoryTitle = directoryTitle.substring(0, comicDirectoryMaxLength);
+      }
+      var baseName = sanitizeFileName(directoryTitle);
+      await for (var entity in Directory(LocalManager().path).list()) {
+        if (entity is! Directory) {
+          continue;
+        }
+        var name = entity.name;
+        var mayBePreviousDownload =
+            name == baseName ||
+            (name.startsWith("$baseName(") && name.endsWith(")"));
+        if (mayBePreviousDownload && !await entity.list().isEmpty) {
+          return entity;
+        }
+      }
+    } catch (e, s) {
+      Log.error(
+        "Download",
+        "Failed to find existing download directory: $e",
+        s,
+      );
+    }
+    return null;
+  }
+
+  Future<void> _writeDownloadInfo() async {
+    if (path == null || comic == null) {
+      return;
+    }
+    try {
+      var file = Directory(path!).joinFile(_downloadInfoFileName);
+      await file.writeAsString(
+        jsonEncode({
+          "id": comicId,
+          "type": comicType.value,
+          "source": source.key,
+          "title": comic!.title,
+        }),
+      );
+    } catch (e, s) {
+      Log.error("Download", "Failed to write download info: $e", s);
+    }
+  }
+
+  Future<void> _deleteDownloadInfo() async {
+    if (path == null) {
+      return;
+    }
+    await Directory(path!).joinFile(_downloadInfoFileName).deleteIgnoreError();
+  }
+
+  Directory _chapterDirectory(String chapterId) {
+    return Directory(
+      FilePath.join(path!, LocalManager.getChapterDirectoryName(chapterId)),
+    );
+  }
+
+  Directory _currentSaveDirectory() {
+    if (comic!.chapters != null) {
+      return _chapterDirectory(_images!.keys.elementAt(_chapter));
+    }
+    return Directory(path!);
+  }
+
   Iterable<String> _requestedChapterIds() sync* {
     var comicChapters = comic?.chapters;
     if (comicChapters == null) {
@@ -332,13 +443,21 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   int get _maxConcurrentTasks =>
       (appdata.settings["downloadThreads"] as num).toInt();
 
-  void _scheduleTasks() {
+  void _scheduleTasks([Set<int>? downloadedPages]) {
     if (!_isRunning) {
       return;
     }
     var images = _images![_images!.keys.elementAt(_chapter)]!;
     var downloading = 0;
+    var saveTo = _currentSaveDirectory();
+    if (!saveTo.existsSync()) {
+      saveTo.createSync(recursive: true);
+    }
+    downloadedPages ??= _downloadedPageIndexes(saveTo, images.length);
     for (var i = _index; i < images.length; i++) {
+      if (downloadedPages.contains(i)) {
+        continue;
+      }
       if (downloading >= _maxConcurrentTasks) {
         return;
       }
@@ -350,20 +469,6 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           continue;
         }
       }
-      Directory saveTo;
-      if (comic!.chapters != null) {
-        saveTo = Directory(FilePath.join(
-          path!,
-          LocalManager.getChapterDirectoryName(
-            _images!.keys.elementAt(_chapter),
-          ),
-        ));
-        if (!saveTo.existsSync()) {
-          saveTo.createSync(recursive: true);
-        }
-      } else {
-        saveTo = Directory(path!);
-      }
       var task = _ImageDownloadWrapper(
         this,
         _images!.keys.elementAt(_chapter),
@@ -374,7 +479,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       tasks[i] = task;
       task.wait().then((task) {
         if (_isRunning && task.isComplete) {
-          _scheduleTasks();
+          _scheduleTasks(downloadedPages);
         }
       });
       downloading++;
@@ -414,11 +519,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
     if (path == null) {
       try {
-        var dir = await LocalManager().findValidDirectory(
-          comicId,
-          comicType,
-          comic!.title,
-        );
+        var dir =
+            await _findReusableDirectory() ??
+            await LocalManager().findValidDirectory(
+              comicId,
+              comicType,
+              comic!.title,
+            );
         if (!(await dir.exists())) {
           await dir.create();
         }
@@ -430,6 +537,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       }
     }
 
+    await _writeDownloadInfo();
     await LocalManager().saveCurrentDownloadingTasks();
 
     if (_cover == null) {
@@ -531,9 +639,21 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
     while (_chapter < _images!.length) {
       var images = _images![_images!.keys.elementAt(_chapter)]!;
+      var saveTo = _currentSaveDirectory();
+      if (!saveTo.existsSync()) {
+        saveTo.createSync(recursive: true);
+      }
+      var downloadedPages = _downloadedPageIndexes(saveTo, images.length);
       tasks.clear();
       while (_index < images.length) {
-        _scheduleTasks();
+        if (downloadedPages.contains(_index)) {
+          _index++;
+          _downloadedCount++;
+          _message = "$_downloadedCount/$_totalCount";
+          await LocalManager().saveCurrentDownloadingTasks();
+          continue;
+        }
+        _scheduleTasks(downloadedPages);
         var task = tasks[_index]!;
         await task.wait();
         if (isPaused) {
@@ -546,6 +666,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         }
         _index++;
         _downloadedCount++;
+        downloadedPages.add(task.index);
         _message = "$_downloadedCount/$_totalCount";
         await LocalManager().saveCurrentDownloadingTasks();
       }
@@ -559,6 +680,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       return;
     }
 
+    await _deleteDownloadInfo();
     LocalManager().completeTask(this);
     stopRecorder();
   }
