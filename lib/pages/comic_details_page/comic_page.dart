@@ -24,6 +24,7 @@ import 'package:venera/pages/favorites/favorites_page.dart';
 import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/utils/file_type.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/opencc.dart';
 import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 import 'dart:math' as math;
@@ -284,7 +285,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       title: AnimatedOpacity(
         opacity: showAppbarTitle ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 200),
-        child: Text(comic.title),
+        child: Text(comic.title.displayText),
       ),
       actions: [
         IconButton(
@@ -338,10 +339,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SelectableText(comic.title, style: ts.s18),
+                SelectableText(comic.title.displayText, style: ts.s18),
                 if (comic.subTitle != null)
                   SelectableText(
-                    comic.subTitle!,
+                    comic.subTitle!.displayText,
                     style: ts.s14,
                   ).paddingVertical(4),
                 Text(
@@ -486,8 +487,8 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                           // ignore
                         }
                         text = groupName == null
-                            ? "${"Last Reading".tl}: $epName P$page"
-                            : "${"Last Reading".tl}: $groupName $epName P$page";
+                            ? "${"Last Reading".tl}: ${epName.displayText} P$page"
+                            : "${"Last Reading".tl}: ${groupName.displayText} ${epName.displayText} P$page";
                       } else {
                         text = "${"Last Reading".tl}: P$page";
                       }
@@ -514,7 +515,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
           ListTile(title: Text("Description".tl)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SelectableText(comic.description!).fixWidth(double.infinity),
+            child: SelectableText(
+              comic.description!.displayText,
+            ).fixWidth(double.infinity),
           ),
           const SizedBox(height: 16),
           const Divider(),
@@ -590,13 +593,13 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                 ),
               ]);
             },
-            child: Text(text).padding(padding),
+            child: Text(text.displayText).padding(padding),
           ),
         );
       } else {
         return Container(
           decoration: BoxDecoration(color: color, borderRadius: borderRadius),
-          child: Text(text).padding(padding),
+          child: Text(text.displayText).padding(padding),
         );
       }
     }
@@ -882,7 +885,7 @@ class _SelectDownloadChapterState extends State<_SelectDownloadChapter> {
               itemCount: widget.eps.length,
               itemBuilder: (context, i) {
                 return CheckboxListTile(
-                  title: Text(widget.eps[i]),
+                  title: Text(widget.eps[i].displayText),
                   value:
                       selected.contains(i) || widget.downloadedEps.contains(i),
                   onChanged: widget.downloadedEps.contains(i)
@@ -1002,7 +1005,7 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (title != null)
-                      Text(title ?? "", style: ts.s18)
+                      Text((title ?? "").displayText, style: ts.s18)
                     else
                       buildContainer(200, 25),
                     const SizedBox(height: 8),

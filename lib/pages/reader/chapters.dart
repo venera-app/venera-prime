@@ -70,7 +70,7 @@ class _ChaptersViewState extends State<_ChaptersView> {
                     widget.reader.toChapter(index + 1);
                     Navigator.of(context).pop();
                   },
-                  title: chapter,
+                  title: chapter.displayText,
                   isActive: current == index,
                   isDownloaded:
                       downloaded.contains(chapters.ids.elementAt(index)),
@@ -141,7 +141,7 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
         Appbar(title: Text("Chapters".tl)),
         AppTabBar(
           controller: tabController,
-          tabs: chapters.groups.map((e) => Tab(text: e)).toList(),
+          tabs: chapters.groups.map((e) => Tab(text: e.displayText)).toList(),
         ),
         Expanded(
           child: TabViewBody(
@@ -175,7 +175,7 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
                   widget.reader.toChapter(i);
                   context.pop();
                 },
-                title: name,
+                title: name.displayText,
                 isActive: widget.reader.chapter == i,
                 isDownloaded: downloaded.contains(group.keys.elementAt(index)),
               );
