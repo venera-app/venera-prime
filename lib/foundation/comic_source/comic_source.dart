@@ -206,7 +206,30 @@ class ComicSource {
   Future<void> loadData() async {
     var file = File("${App.dataPath}/comic_source/$key.data");
     if (await file.exists()) {
-      data = Map.from(jsonDecode(await file.readAsString()));
+      try {
+        var content = await file.readAsString();
+        if (content.trim().isEmpty) {
+          Log.warning(
+            "ComicSource",
+            "Ignore empty data file for $key: ${file.path}",
+          );
+          return;
+        }
+        var decoded = jsonDecode(content);
+        if (decoded is! Map) {
+          Log.warning(
+            "ComicSource",
+            "Ignore invalid data file for $key: expected Map, got ${decoded.runtimeType}",
+          );
+          return;
+        }
+        data = Map<String, dynamic>.from(decoded);
+      } catch (e, s) {
+        Log.error(
+          "ComicSource",
+          "Failed to load data for $key from ${file.path}\n$e\n$s",
+        );
+      }
     }
   }
 
@@ -221,13 +244,31 @@ class ComicSource {
       _haveWaitingTask = false;
     }
     _isSaving = true;
-    var file = File("${App.dataPath}/comic_source/$key.data");
-    if (!await file.exists()) {
-      await file.create(recursive: true);
+    try {
+      var file = File("${App.dataPath}/comic_source/$key.data");
+      var tempFile = File("${file.path}.tmp");
+      var backupFile = File("${file.path}.bak");
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+      await tempFile.writeAsString(jsonEncode(data), flush: true);
+      await backupFile.deleteIgnoreError();
+      if (await file.exists()) {
+        await file.rename(backupFile.path);
+      }
+      try {
+        await tempFile.rename(file.path);
+        await backupFile.deleteIgnoreError();
+      } catch (_) {
+        if (!await file.exists() && await backupFile.exists()) {
+          await backupFile.rename(file.path);
+        }
+        rethrow;
+      }
+      DataSync().uploadData();
+    } finally {
+      _isSaving = false;
     }
-    await file.writeAsString(jsonEncode(data));
-    _isSaving = false;
-    DataSync().uploadData();
   }
 
   Future<bool> reLogin() async {
