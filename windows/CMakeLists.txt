@@ -57,6 +57,25 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+if(MSVC)
+  foreach(target flutter_inappwebview_windows_plugin local_auth_windows_plugin)
+    if(TARGET ${target})
+      target_compile_definitions(${target} PRIVATE
+        _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+    endif()
+  endforeach()
+
+  foreach(target lodepng_flutter zip_flutter)
+    if(TARGET ${target})
+      get_target_property(link_options ${target} LINK_OPTIONS)
+      if(link_options)
+        list(REMOVE_ITEM link_options "-Wl,--build-id=none")
+        set_target_properties(${target} PROPERTIES LINK_OPTIONS "${link_options}")
+      endif()
+    endif()
+  endforeach()
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

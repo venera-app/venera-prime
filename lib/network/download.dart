@@ -103,32 +103,53 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   @override
   void cancel() {
     _isRunning = false;
+    stopRecorder();
     LocalManager().removeTask(this);
+    final downloadPath = path;
     var local = LocalManager().find(id, comicType);
-    if (path != null) {
-      if (local == null) {
-        Future.sync(() async {
-          var tasks = this.tasks.values.toList();
-          for (var i = 0; i < tasks.length; i++) {
-            if (!tasks[i].isComplete) {
-              tasks[i].cancel();
-              await tasks[i].wait();
+    unawaited(
+      Future.sync(() async {
+        await _cancelPendingDownloads();
+        if (downloadPath == null) {
+          return;
+        }
+        if (local == null) {
+          try {
+            await Directory(downloadPath).delete(recursive: true);
+          } catch (e, s) {
+            Log.error("Download", "Failed to delete directory: $e", s);
+          }
+        } else if (chapters != null) {
+          for (var c in chapters!) {
+            var dir = Directory(FilePath.join(
+              downloadPath,
+              LocalManager.getChapterDirectoryName(c),
+            ));
+            try {
+              if (await dir.exists()) {
+                await dir.delete(recursive: true);
+              }
+            } catch (e, s) {
+              Log.error(
+                "Download",
+                "Failed to delete chapter directory ${dir.path}: $e",
+                s,
+              );
             }
           }
-          try {
-            await Directory(path!).delete(recursive: true);
-          }
-          catch(e) {
-            Log.error("Download", "Failed to delete directory: $e");
-          }
-        });
-      } else if (chapters != null) {
-        for (var c in chapters!) {
-          var dir = Directory(FilePath.join(path!, c));
-          if (dir.existsSync()) {
-            dir.deleteSync(recursive: true);
-          }
         }
+      }).catchError((e, s) {
+        Log.error("Download", "Failed to cancel download cleanup: $e", s);
+      }),
+    );
+  }
+
+  Future<void> _cancelPendingDownloads() async {
+    var pendingTasks = tasks.values.toList();
+    for (var i = 0; i < pendingTasks.length; i++) {
+      if (!pendingTasks[i].isComplete) {
+        pendingTasks[i].cancel();
+        await pendingTasks[i].wait();
       }
     }
   }
@@ -193,6 +214,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       (appdata.settings["downloadThreads"] as num).toInt();
 
   void _scheduleTasks() {
+    if (!_isRunning) {
+      return;
+    }
     var images = _images![_images!.keys.elementAt(_chapter)]!;
     var downloading = 0;
     for (var i = _index; i < images.length; i++) {
@@ -230,7 +254,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       );
       tasks[i] = task;
       task.wait().then((task) {
-        if (task.isComplete) {
+        if (_isRunning && task.isComplete) {
           _scheduleTasks();
         }
       });
@@ -559,11 +583,28 @@ class _ImageDownloadWrapper {
 
   void cancel() {
     isCancelled = true;
+    var pendingWrite = _pendingWrite;
+    if (pendingWrite == null) {
+      _completeWaiters();
+    } else {
+      unawaited(pendingWrite.catchError((_) {}).whenComplete(_completeWaiters));
+    }
   }
 
   var completers = <Completer<_ImageDownloadWrapper>>[];
 
   var retry = 3;
+
+  Future<void>? _pendingWrite;
+
+  void _completeWaiters() {
+    for (var c in completers) {
+      if (!c.isCompleted) {
+        c.complete(this);
+      }
+    }
+    completers.clear();
+  }
 
   void start() async {
     int lastBytes = 0;
@@ -578,16 +619,24 @@ class _ImageDownloadWrapper {
         if (p.imageBytes != null) {
           var fileType = detectFileType(p.imageBytes!);
           var file = saveTo.joinFile("$index${fileType.ext}");
-          await file.writeAsBytes(p.imageBytes!);
-          isComplete = true;
-          for (var c in completers) {
-            c.complete(this);
+          var pendingWrite = file.writeAsBytes(p.imageBytes!);
+          _pendingWrite = pendingWrite;
+          try {
+            await pendingWrite;
+          } finally {
+            _pendingWrite = null;
           }
-          completers.clear();
+          if (isCancelled) {
+            _completeWaiters();
+            return;
+          }
+          isComplete = true;
+          _completeWaiters();
         }
       }
     } catch (e, s) {
       if (isCancelled) {
+        _completeWaiters();
         return;
       }
       Log.error("Download", e.toString(), s);
@@ -597,16 +646,12 @@ class _ImageDownloadWrapper {
         return;
       }
       error = e.toString();
-      for (var c in completers) {
-        if (!c.isCompleted) {
-          c.complete(this);
-        }
-      }
+      _completeWaiters();
     }
   }
 
   Future<_ImageDownloadWrapper> wait() {
-    if (isComplete) {
+    if (isComplete || error != null || (isCancelled && _pendingWrite == null)) {
       return Future.value(this);
     }
     var c = Completer<_ImageDownloadWrapper>();
@@ -688,8 +733,12 @@ class ArchiveDownloadTask extends DownloadTask {
     _isRunning = false;
     await _downloader?.stop();
     if (path != null) {
-      Directory(path!).deleteIgnoreError(recursive: true);
+      await Directory(path!).deleteIgnoreError(recursive: true);
     }
+    var archiveFile =
+        File(FilePath.join(App.dataPath, "archive_downloading.zip"));
+    await archiveFile.deleteIgnoreError();
+    await File("${archiveFile.path}.download").deleteIgnoreError();
     path = null;
     LocalManager().removeTask(this);
   }

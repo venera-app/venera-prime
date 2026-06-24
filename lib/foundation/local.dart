@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 
@@ -560,8 +561,7 @@ class LocalManager with ChangeNotifier {
 
   void deleteComic(LocalComic c, [bool removeFileOnDisk = true]) {
     if (removeFileOnDisk) {
-      var dir = Directory(FilePath.join(path, c.directory));
-      dir.deleteIgnoreError(recursive: true);
+      _deleteDirectories([Directory(c.baseDir)]);
     }
     // Deleting a local comic means that it's no longer available, thus both favorite and history should be deleted.
     if (c.comicType == ComicType.local) {
@@ -615,7 +615,11 @@ class LocalManager with ChangeNotifier {
     notifyListeners();
   }
 
-  void batchDeleteComics(List<LocalComic> comics, [bool removeFileOnDisk = true, bool removeFavoriteAndHistory = true]) {
+  void batchDeleteComics(
+    List<LocalComic> comics, [
+    bool removeFileOnDisk = true,
+    bool removeFavoriteAndHistory = true,
+  ]) {
     if (comics.isEmpty) {
       return;
     }
@@ -625,7 +629,7 @@ class LocalManager with ChangeNotifier {
     try {
       for (var c in comics) {
         if (removeFileOnDisk) {
-          var dir = Directory(FilePath.join(path, c.directory));
+          var dir = Directory(c.baseDir);
           if (dir.existsSync()) {
             shouldRemovedDirs.add(dir);
           }
@@ -635,8 +639,7 @@ class LocalManager with ChangeNotifier {
           [c.id, c.comicType.value],
         );
       }
-    }
-    catch(e, s) {
+    } catch (e, s) {
       Log.error("LocalManager", "Failed to batch delete comics: $e", s);
       _db.execute('ROLLBACK;');
       return;
@@ -659,18 +662,41 @@ class LocalManager with ChangeNotifier {
 
   /// Deletes the directories in a separate isolate to avoid blocking the UI thread.
   static void _deleteDirectories(List<Directory> directories) {
-    Isolate.run(() async {
-      await SAFTaskWorker().init();
-      for (var dir in directories) {
-        try {
-          if (dir.existsSync()) {
-            await dir.delete(recursive: true);
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-    });
+    final paths = directories.map((dir) => dir.path).toList();
+    unawaited(
+      Isolate.run(() async {
+            var errors = <String>[];
+            await SAFTaskWorker().init();
+            await overrideIO(() async {
+              for (var path in paths) {
+                var dir = Directory(path);
+                try {
+                  if (await dir.exists()) {
+                    await dir.delete(recursive: true);
+                  }
+                } catch (e, s) {
+                  errors.add(
+                    "Failed to delete local directory ${dir.path}: "
+                    "$e\n${s.toString()}",
+                  );
+                }
+              }
+            });
+            return errors;
+          })
+          .then((errors) {
+            for (var error in errors) {
+              Log.error("LocalManager", error);
+            }
+          })
+          .catchError((e, s) {
+            Log.error(
+              "LocalManager",
+              "Failed to run local directory cleanup: $e",
+              s,
+            );
+          }),
+    );
   }
 
   static String getChapterDirectoryName(String name) {
