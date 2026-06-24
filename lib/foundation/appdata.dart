@@ -34,9 +34,7 @@ class Appdata with Init {
       if (disableSyncFields.isNotEmpty) {
         var json4sync = jsonDecode(data);
         List<String> customDisableSync = splitField(disableSyncFields);
-        for (var field in customDisableSync) {
-          json4sync["settings"].remove(field);
-        }
+        _removeSyncDisabledFields(json4sync["settings"], customDisableSync);
         var data4sync = jsonEncode(json4sync);
         var file4sync = File(FilePath.join(App.dataPath, 'syncdata.json'));
         futures.add(file4sync.writeAsString(data4sync));
@@ -84,6 +82,91 @@ class Appdata with Init {
         .toList();
   }
 
+  bool isSyncFieldDisabled(String field) {
+    return splitField(settings["disableSyncFields"] as String).contains(field);
+  }
+
+  void setSyncFieldDisabled(String field, bool disabled) {
+    var fields = splitField(settings["disableSyncFields"] as String);
+    if (disabled) {
+      if (!fields.contains(field)) {
+        fields.add(field);
+      }
+    } else {
+      fields.remove(field);
+    }
+    settings["disableSyncFields"] = fields.join(", ");
+  }
+
+  static const _readerScopedSettingContainers = [
+    "comicSpecificSettings",
+    "deviceSpecificSettings",
+  ];
+
+  static void _removeSyncDisabledFields(
+    Map<String, dynamic> settings,
+    List<String> disabledFields,
+  ) {
+    for (var field in disabledFields) {
+      settings.remove(field);
+    }
+    for (var containerKey in _readerScopedSettingContainers) {
+      var container = settings[containerKey];
+      if (container is Map) {
+        for (var scopedSettings in container.values) {
+          if (scopedSettings is Map) {
+            for (var field in disabledFields) {
+              scopedSettings.remove(field);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Map<String, dynamic> _mergeSyncDisabledReaderScopedSettings(
+    Map current,
+    Map incoming,
+    List<String> disabledFields,
+  ) {
+    var result = <String, dynamic>{};
+    for (var entry in incoming.entries) {
+      var incomingSettings = entry.value;
+      if (incomingSettings is Map) {
+        var scopedSettings = Map<String, dynamic>.from(incomingSettings);
+        var currentSettings = current[entry.key];
+        if (currentSettings is Map) {
+          for (var field in disabledFields) {
+            if (currentSettings.containsKey(field)) {
+              scopedSettings[field] = currentSettings[field];
+            }
+          }
+        }
+        result[entry.key.toString()] = scopedSettings;
+      } else {
+        result[entry.key.toString()] = incomingSettings;
+      }
+    }
+    for (var entry in current.entries) {
+      if (result.containsKey(entry.key)) {
+        continue;
+      }
+      var currentSettings = entry.value;
+      if (currentSettings is Map) {
+        var scopedSettings = <String, dynamic>{};
+        for (var field in disabledFields) {
+          if (currentSettings.containsKey(field)) {
+            scopedSettings[field] = currentSettings[field];
+          }
+        }
+        if (scopedSettings.isNotEmpty) {
+          result[entry.key.toString()] = scopedSettings;
+        }
+      }
+    }
+    return result;
+  }
+
   /// Following fields are related to device-specific data and should not be synced.
   static const _disableSync = [
     "proxy",
@@ -97,15 +180,26 @@ class Appdata with Init {
   /// Sync data from another device
   void syncData(Map<String, dynamic> data) {
     if (data['settings'] is Map) {
-      var settings = data['settings'] as Map<String, dynamic>;
+      var settings = Map<String, dynamic>.from(data['settings']);
 
       List<String> customDisableSync = splitField(
         this.settings["disableSyncFields"] as String,
       );
+      _removeSyncDisabledFields(settings, customDisableSync);
 
       for (var key in settings.keys) {
         if (!_disableSync.contains(key) && !customDisableSync.contains(key)) {
-          this.settings[key] = settings[key];
+          if (_readerScopedSettingContainers.contains(key) &&
+              settings[key] is Map &&
+              customDisableSync.isNotEmpty) {
+            this.settings[key] = _mergeSyncDisabledReaderScopedSettings(
+              this.settings[key] is Map ? this.settings[key] : {},
+              settings[key],
+              customDisableSync,
+            );
+          } else {
+            this.settings[key] = settings[key];
+          }
         }
       }
     }
@@ -195,6 +289,7 @@ class Settings with ChangeNotifier {
     'enableTapToTurnPages': true,
     'reverseTapToTurnPages': false,
     'enablePageAnimation': true,
+    'flashWhiteScreenOnPageTurn': false,
     'language': 'system', // system, zh-CN, zh-TW, en-US
     'cacheSize': 2048, // in MB
     'downloadThreads': 5,
