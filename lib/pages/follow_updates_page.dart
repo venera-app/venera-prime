@@ -76,9 +76,7 @@ class _FollowUpdatesWidgetState
                 height: 56,
                 child: Row(
                   children: [
-                    Center(
-                      child: Text('Follow Updates'.tl, style: ts.s18),
-                    ),
+                    Center(child: Text('Follow Updates'.tl, style: ts.s18)),
                     const Spacer(),
                     const Icon(Icons.arrow_right),
                   ],
@@ -86,17 +84,17 @@ class _FollowUpdatesWidgetState
               ).paddingHorizontal(16),
               if (_count > 0)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 2,
+                  ),
                   margin: const EdgeInsets.only(bottom: 16, left: 16),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
                     color: Theme.of(context).colorScheme.primaryContainer,
                   ),
                   child: Text(
-                    '@c updates'.tlParams({
-                      'c': _count,
-                    }),
+                    '@c updates'.tlParams({'c': _count}),
                     style: ts.s16,
                   ),
                 ),
@@ -119,10 +117,75 @@ class FollowUpdatesPage extends StatefulWidget {
 }
 
 class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
+  static const _checkIntervalOptions = [1, 6, 12, 24, 48, 72, 168];
+
   String? get folder => appdata.settings["followUpdatesFolder"];
 
   var updatedComics = <FavoriteItemWithUpdateInfo>[];
   var allComics = <FavoriteItemWithUpdateInfo>[];
+
+  int get checkIntervalHours {
+    var value = appdata.settings["followUpdatesCheckIntervalHours"];
+    if (value is num && value >= 1) {
+      return value.toInt();
+    }
+    return 24;
+  }
+
+  bool get checkOnStart =>
+      appdata.settings["followUpdatesCheckOnStart"] != false;
+
+  String get fixedCheckTime {
+    var value = appdata.settings["followUpdatesCheckFixedTime"];
+    return value is String ? value : "";
+  }
+
+  String formatCheckInterval(int hours) {
+    if (hours == 1) {
+      return "Every hour".tl;
+    }
+    return "Every @a hours".tlParams({"a": hours});
+  }
+
+  String get scheduleDescription {
+    if (fixedCheckTime.isEmpty) {
+      return "Automatic checks run at most once every @a hours.".tlParams({
+        "a": checkIntervalHours,
+      });
+    }
+    return "Automatic checks run after @time, at most once every @a hours."
+        .tlParams({"time": fixedCheckTime, "a": checkIntervalHours});
+  }
+
+  TimeOfDay? parseFixedCheckTime() {
+    var parts = fixedCheckTime.split(":");
+    if (parts.length != 2) {
+      return null;
+    }
+    var hour = int.tryParse(parts[0]);
+    var minute = int.tryParse(parts[1]);
+    if (hour == null ||
+        minute == null ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59) {
+      return null;
+    }
+    return TimeOfDay(hour: hour, minute: minute);
+  }
+
+  String formatTimeOfDay(TimeOfDay time) {
+    return "${time.hour.toString().padLeft(2, '0')}:"
+        "${time.minute.toString().padLeft(2, '0')}";
+  }
+
+  Future<void> saveFollowUpdateSetting(String key, dynamic value) async {
+    setState(() {
+      appdata.settings[key] = value;
+    });
+    await appdata.saveData();
+  }
 
   /// Sort comics by update time in descending order with nulls at the end.
   void sortComics() {
@@ -225,19 +288,72 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: Icon(Icons.stars_outlined),
-              title: Text(folder!),
-            ),
+            ListTile(leading: Icon(Icons.stars_outlined), title: Text(folder!)),
             Text(
               "Automatic update checking enabled.".tl,
               style: ts.s14,
             ).paddingHorizontal(16),
-            Text(
-              "The app will check for updates at most once a day.".tl,
-              style: ts.s14,
-            ).paddingHorizontal(16),
+            Text(scheduleDescription, style: ts.s14).paddingHorizontal(16),
             const SizedBox(height: 8),
+            SwitchListTile(
+              title: Text("Check follow updates on startup".tl),
+              subtitle: Text(
+                "Run one check immediately after the app starts.".tl,
+              ),
+              value: checkOnStart,
+              onChanged: (value) {
+                saveFollowUpdateSetting("followUpdatesCheckOnStart", value);
+              },
+            ),
+            ListTile(
+              title: Text("Follow updates check interval".tl),
+              subtitle: Text(
+                "Automatic checks skip comics checked within this interval.".tl,
+              ),
+              trailing: Select(
+                current: formatCheckInterval(checkIntervalHours),
+                values: _checkIntervalOptions.map(formatCheckInterval).toList(),
+                minWidth: 112,
+                onTap: (index) {
+                  saveFollowUpdateSetting(
+                    "followUpdatesCheckIntervalHours",
+                    _checkIntervalOptions[index],
+                  );
+                },
+              ),
+            ),
+            ListTile(
+              title: Text("Fixed check time".tl),
+              subtitle: Text(
+                fixedCheckTime.isEmpty
+                    ? "Automatic checks can run at any time.".tl
+                    : "Automatic checks wait until this time of day.".tl,
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    fixedCheckTime.isEmpty ? "Disabled".tl : fixedCheckTime,
+                    style: ts.s14,
+                  ),
+                  const SizedBox(width: 4),
+                  if (fixedCheckTime.isNotEmpty)
+                    IconButton(
+                      tooltip: "Disable".tl,
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        saveFollowUpdateSetting(
+                          "followUpdatesCheckFixedTime",
+                          "",
+                        );
+                      },
+                    )
+                  else
+                    const Icon(Icons.schedule),
+                ],
+              ),
+              onTap: showFixedCheckTimePicker,
+            ),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -278,10 +394,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
               children: [
                 Icon(Icons.update),
                 const SizedBox(width: 8),
-                Text(
-                  "Updates".tl,
-                  style: ts.s18,
-                ),
+                Text("Updates".tl, style: ts.s18),
                 const Spacer(),
                 if (updatedComics.isNotEmpty)
                   IconButton(
@@ -311,10 +424,9 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
         if (updatedComics.isNotEmpty)
           SliverToBoxAdapter(
             child: Text(
-                    "The comic will be marked as no updates as soon as you read it."
-                        .tl)
-                .paddingHorizontal(16)
-                .paddingVertical(4),
+              "The comic will be marked as no updates as soon as you read it."
+                  .tl,
+            ).paddingHorizontal(16).paddingVertical(4),
           ),
         if (updatedComics.isNotEmpty)
           SliverGridComics(comics: updatedComics)
@@ -323,24 +435,23 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
             child: Row(
               children: [
                 Container(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainerLow,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "No updates found".tl,
-                        style: ts.s16,
-                      ),
-                    ],
+                    children: [Text("No updates found".tl, style: ts.s16)],
                   ),
-                )
+                ),
               ],
             ),
           ),
@@ -367,10 +478,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
               children: [
                 Icon(Icons.list),
                 const SizedBox(width: 8),
-                Text(
-                  "All Comics".tl,
-                  style: ts.s18,
-                ),
+                Text("All Comics".tl, style: ts.s18),
               ],
             ),
           ),
@@ -390,48 +498,64 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
     showDialog(
       context: App.rootContext,
       builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
-          return ContentDialog(
-            title: "Choose Folder".tl,
-            content: Column(
-              children: [
-                ListTile(
-                  title: Text("Folder".tl),
-                  trailing: Select(
-                    minWidth: 120,
-                    current: selectedFolder,
-                    values: folders,
-                    onTap: (i) {
-                      setState(() {
-                        selectedFolder = folders[i];
-                      });
-                    },
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return ContentDialog(
+              title: "Choose Folder".tl,
+              content: Column(
+                children: [
+                  ListTile(
+                    title: Text("Folder".tl),
+                    trailing: Select(
+                      minWidth: 120,
+                      current: selectedFolder,
+                      values: folders,
+                      onTap: (i) {
+                        setState(() {
+                          selectedFolder = folders[i];
+                        });
+                      },
+                    ),
                   ),
+                ],
+              ),
+              actions: [
+                if (appdata.settings["followUpdatesFolder"] != null)
+                  TextButton(
+                    onPressed: () {
+                      disable();
+                      context.pop();
+                    },
+                    child: Text("Disable".tl),
+                  ),
+                FilledButton(
+                  onPressed: selectedFolder == null
+                      ? null
+                      : () {
+                          context.pop();
+                          setFolder(selectedFolder!);
+                        },
+                  child: Text("Confirm".tl),
                 ),
               ],
-            ),
-            actions: [
-              if (appdata.settings["followUpdatesFolder"] != null)
-                TextButton(
-                  onPressed: () {
-                    disable();
-                    context.pop();
-                  },
-                  child: Text("Disable".tl),
-                ),
-              FilledButton(
-                onPressed: selectedFolder == null
-                    ? null
-                    : () {
-                        context.pop();
-                        setFolder(selectedFolder!);
-                      },
-                child: Text("Confirm".tl),
-              ),
-            ],
-          );
-        });
+            );
+          },
+        );
       },
+    );
+  }
+
+  void showFixedCheckTimePicker() async {
+    var selected = await showTimePicker(
+      context: App.rootContext,
+      initialTime: parseFixedCheckTime() ?? TimeOfDay.now(),
+    );
+    if (selected == null) {
+      return;
+    }
+    await saveFollowUpdateSetting(
+      "followUpdatesCheckFixedTime",
+      formatTimeOfDay(selected),
     );
   }
 
@@ -541,6 +665,31 @@ abstract class FollowUpdatesService {
 
   static bool _isInitialized = false;
 
+  static bool _shouldCheckAfterFixedTime() {
+    var fixedTimeValue = appdata.settings["followUpdatesCheckFixedTime"];
+    var fixedTime = fixedTimeValue is String ? fixedTimeValue : "";
+    if (fixedTime.isEmpty) {
+      return true;
+    }
+    var parts = fixedTime.split(":");
+    if (parts.length != 2) {
+      return true;
+    }
+    var hour = int.tryParse(parts[0]);
+    var minute = int.tryParse(parts[1]);
+    if (hour == null ||
+        minute == null ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59) {
+      return true;
+    }
+    var now = DateTime.now();
+    var scheduled = DateTime(now.year, now.month, now.day, hour, minute);
+    return !now.isBefore(scheduled);
+  }
+
   static void _check() async {
     if (_isChecking) {
       return;
@@ -581,11 +730,15 @@ abstract class FollowUpdatesService {
   static void initChecker() {
     if (_isInitialized) return;
     _isInitialized = true;
-    _check();
     DataSync().addListener(updateFollowUpdatesUI);
+    if (appdata.settings["followUpdatesCheckOnStart"] != false) {
+      _check();
+    }
     // A short interval will not affect the performance since every comic has a check time.
     Timer.periodic(const Duration(minutes: 10), (timer) {
-      _check();
+      if (_shouldCheckAfterFixedTime()) {
+        _check();
+      }
     });
   }
 }
