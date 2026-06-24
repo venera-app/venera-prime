@@ -17,6 +17,8 @@ class ReaderSettings extends StatefulWidget {
 }
 
 class _ReaderSettingsState extends State<ReaderSettings> {
+  static const _whiteRefreshSettingKey = 'flashWhiteScreenOnPageTurn';
+
   bool _isChapterCommentsAtEndSupported() {
     String? readerMode;
     bool? showChapterComments;
@@ -191,6 +193,31 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
+        _SwitchSetting(
+          title: "Flash white screen on page turn".tl,
+          subtitle: "Useful for reducing ghosting on e-ink screens.".tl,
+          settingKey: _whiteRefreshSettingKey,
+          onChanged: () {
+            widget.onChanged?.call(_whiteRefreshSettingKey);
+          },
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        if (comicId == null)
+          SwitchListTile(
+            title: Text("Sync white flash setting with WebDAV".tl),
+            subtitle: Text(
+              "Turn off to keep this e-ink preference local to this device.".tl,
+            ),
+            value: !appdata.isSyncFieldDisabled(_whiteRefreshSettingKey),
+            onChanged: (value) {
+              setState(() {
+                appdata.setSyncFieldDisabled(_whiteRefreshSettingKey, !value);
+              });
+              appdata.saveData();
+            },
+          ).toSliver(),
         SelectSetting(
           title: "Reading mode".tl,
           settingKey: "readerMode",

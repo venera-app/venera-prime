@@ -184,6 +184,10 @@ class _ReaderState extends State<Reader>
   @override
   bool isLoading = false;
 
+  bool _showWhiteRefreshOverlay = false;
+  Timer? _whiteRefreshOverlayTimer;
+  bool _whiteRefreshOverlayReady = false;
+
   var focusNode = FocusNode();
 
   @override
@@ -246,6 +250,11 @@ class _ReaderState extends State<Reader>
       _checkImagesPerPageChange();
     }
     initReaderWindow();
+    if (!_whiteRefreshOverlayReady) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _whiteRefreshOverlayReady = true;
+      });
+    }
   }
 
   void setImageCacheSize() async {
@@ -274,6 +283,7 @@ class _ReaderState extends State<Reader>
       fullscreen();
     }
     autoPageTurningTimer?.cancel();
+    _whiteRefreshOverlayTimer?.cancel();
     focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     stopVolumeEvent();
@@ -296,10 +306,24 @@ class _ReaderState extends State<Reader>
         initialEntries: [
           OverlayEntry(
             builder: (context) {
-              return _ReaderScaffold(
-                child: _ReaderGestureDetector(
-                  child: _ReaderImages(key: Key(chapter.toString())),
-                ),
+              return Stack(
+                children: [
+                  _ReaderScaffold(
+                    child: _ReaderGestureDetector(
+                      child: _ReaderImages(key: Key(chapter.toString())),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _showWhiteRefreshOverlay ? 1 : 0,
+                        duration: const Duration(milliseconds: 40),
+                        curve: Curves.linear,
+                        child: const ColoredBox(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
               );
             },
           ),
@@ -320,7 +344,39 @@ class _ReaderState extends State<Reader>
 
   @override
   void onPageChanged() {
+    flashWhiteScreenOnPageTurn();
     updateHistory();
+  }
+
+  void flashWhiteScreenOnPageTurn() {
+    if (!_whiteRefreshOverlayReady) {
+      return;
+    }
+    if (mode.isContinuous) {
+      return;
+    }
+    if (appdata.settings.getReaderSetting(
+          cid,
+          type.sourceKey,
+          'flashWhiteScreenOnPageTurn',
+        ) !=
+        true) {
+      return;
+    }
+    _whiteRefreshOverlayTimer?.cancel();
+    if (!_showWhiteRefreshOverlay) {
+      setState(() {
+        _showWhiteRefreshOverlay = true;
+      });
+    }
+    _whiteRefreshOverlayTimer = Timer(const Duration(milliseconds: 90), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showWhiteRefreshOverlay = false;
+      });
+    });
   }
 
   /// Prevent multiple history updates in a short time.
@@ -415,7 +471,7 @@ abstract mixin class _ImagePerPageHandler {
   late int _lastImagesPerPage;
 
   late bool _lastOrientation;
-  
+
   /// Track if we were on the chapter comments page before orientation change
   bool _wasOnCommentsPage = false;
 
@@ -430,13 +486,13 @@ abstract mixin class _ImagePerPageHandler {
   String get cid;
 
   ComicType get type;
-  
+
   /// Whether the current page is the chapter comments page
   bool get isOnChapterCommentsPage;
-  
+
   /// Get the max page (excluding comments page)
   int get maxPage;
-  
+
   /// Get images list for calculating maxPage
   List<String>? get images;
 
@@ -478,7 +534,7 @@ abstract mixin class _ImagePerPageHandler {
           1;
     }
   }
-  
+
   /// Calculate maxPage with a specific imagesPerPage value
   int _calcMaxPage(int imagesPerPageValue) {
     if (images == null) return 1;
@@ -498,7 +554,7 @@ abstract mixin class _ImagePerPageHandler {
       // if we were on the comments page before the orientation change
       int oldMaxPage = _calcMaxPage(_lastImagesPerPage);
       _wasOnCommentsPage = page > oldMaxPage;
-      
+
       _adjustPageForImagesPerPageChange(
         _lastImagesPerPage,
         currentImagesPerPage,
@@ -537,7 +593,7 @@ abstract mixin class _ImagePerPageHandler {
 
     // Clamp to valid range (1 to maxPage)
     newPage = newPage.clamp(1, maxPage);
-    
+
     // If we were on the comments page, stay on the comments page
     if (_wasOnCommentsPage) {
       page = maxPage + 1;
