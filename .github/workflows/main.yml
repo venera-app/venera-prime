@@ -54,6 +54,7 @@ jobs:
       - run: flutter pub get
         # Step 1: Decode and install the certificate
       - name: Decode and install certificate
+        if: ${{ secrets.CERTIFICATE != '' && secrets.CERTIFICATE_PASSWORD != '' }}
         env:
           CERTIFICATE: ${{ secrets.CERTIFICATE }}
           CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
@@ -237,7 +238,7 @@ jobs:
           path: build/linux/arch/
 
   Build_Linux_ARM64:
-    if: ${{ github.event_name == 'release' || inputs.build_linux_arm64 }}
+    if: ${{ false }}
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -292,6 +293,7 @@ jobs:
         with:
           name: deb_arm64_build
           path: outputs
+        continue-on-error: true
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
