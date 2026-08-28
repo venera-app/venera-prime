@@ -1,11 +1,11 @@
 flutter_app: 
-  command: venera-prime
+  command: venera
   arch: {{Arch}}
   parent: /usr/local/lib
   nonInteractive: true
 
 control:
-  Package: venera-prime
+  Package: venera
   Version: {{Version}}
   Architecture: {{Architecture}}
   Priority: optional
