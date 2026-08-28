@@ -54,13 +54,16 @@ jobs:
       - run: flutter pub get
         # Step 1: Decode and install the certificate
       - name: Decode and install certificate
-        if: ${{ secrets.CERTIFICATE != '' && secrets.CERTIFICATE_PASSWORD != '' }}
         env:
           CERTIFICATE: ${{ secrets.CERTIFICATE }}
           CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
         run: |
-          echo "$CERTIFICATE" | base64 --decode > signing_certificate.p12
-          security import signing_certificate.p12 -k ~/Library/Keychains/login.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          if [[ -n "$CERTIFICATE" && -n "$CERTIFICATE_PASSWORD" ]]; then
+            printf '%s' "$CERTIFICATE" | base64 --decode > signing_certificate.p12
+            security import signing_certificate.p12 -k ~/Library/Keychains/login.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          else
+            echo "macOS signing secrets are not configured; continuing without certificate import"
+          fi
 
       - name: Check rust-toolchain.toml
         run: rustup show
