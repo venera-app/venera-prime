@@ -245,10 +245,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          architecture: arm64
+      - name: Install Flutter for ARM64
+        run: |
+          git clone --depth 1 --branch 3.41.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          flutter --version
       - run: |
           flutter pub get
           sudo apt-get update -y
