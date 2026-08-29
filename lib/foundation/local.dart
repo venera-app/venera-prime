@@ -282,9 +282,13 @@ class LocalManager with ChangeNotifier {
       path = File(FilePath.join(App.dataPath, 'local_path')).readAsStringSync();
       if (!directory.existsSync()) {
         path = await findDefaultPath();
+        await File(FilePath.join(App.dataPath, 'local_path'))
+            .writeAsString(path);
       }
     } else {
       path = await findDefaultPath();
+      await File(FilePath.join(App.dataPath, 'local_path'))
+          .writeAsString(path);
     }
     try {
       if (!directory.existsSync()) {
