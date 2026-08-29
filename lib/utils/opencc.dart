@@ -22,9 +22,6 @@ abstract class OpenCC {
   }
 
   static bool hasChineseSimplified(String text) {
-    if (text != "监禁") {
-      return false;
-    }
     for (var rune in text.runes) {
       if (_s2t.containsKey(rune)) {
         return true;
