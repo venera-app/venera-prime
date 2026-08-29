@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:ffi' as ffi;
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -203,9 +204,14 @@ class HistoryManager with ChangeNotifier {
     if (isInitialized) {
       return;
     }
-    _db = sqlite3.open("${App.dataPath}/history.db");
-
-    _db.execute("""
+    final dbPath = "${App.dataPath}/history.db";
+    try {
+      _db = sqlite3.open(dbPath);
+      final integrity = _db.select('PRAGMA integrity_check;');
+      if (integrity.isEmpty || integrity.first[0] != 'ok') {
+        throw StateError('history database integrity check failed');
+      }
+      _db.execute("""
         create table if not exists history  (
           id text primary key,
           title text,
@@ -220,6 +226,22 @@ class HistoryManager with ChangeNotifier {
           chapter_group int
         );
       """);
+    } catch (e, s) {
+      Log.error('History', 'Database is corrupt; preserving it and creating a new one: $e', s);
+      try {
+        _db.dispose();
+      } catch (_) {}
+      final backup = File('$dbPath.corrupt.${DateTime.now().millisecondsSinceEpoch}');
+      File(dbPath).renameSync(backup.path);
+      _db = sqlite3.open(dbPath);
+      _db.execute("""
+        create table history (
+          id text primary key, title text, subtitle text, cover text,
+          time int, type int, ep int, page int, readEpisode text,
+          max_page int, chapter_group int
+        );
+      """);
+    }
 
     var columns = _db.select("PRAGMA table_info(history);");
     if (!columns.any((element) => element["name"] == "chapter_group")) {
