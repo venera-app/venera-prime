@@ -203,7 +203,12 @@ class Appdata with Init {
         }
       }
     }
-    searchHistory = List.from(data['searchHistory'] ?? []);
+    // Remote files may be partially written or produced by an older version.
+    // Ignore malformed history instead of crashing during startup sync.
+    final remoteHistory = data['searchHistory'];
+    if (remoteHistory is List) {
+      searchHistory = remoteHistory.whereType<String>().toList();
+    }
     saveData();
   }
 
