@@ -430,6 +430,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         }
         var index = int.tryParse(entity.basenameWithoutExt);
         if (index != null && index >= 0 && index < expectedCount) {
+          // Failed downloads leave a placeholder plus an error marker. Treat
+          // those pages as missing so resume retries them and completion does
+          // not persist an incomplete chapter.
+          if (File(FilePath.join(directory.path, ".$index.error.txt"))
+              .existsSync()) {
+            continue;
+          }
           indexes.add(index);
         }
       }
@@ -442,6 +449,15 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   bool _hasDownloadedPages(Directory directory, int expectedCount) {
     if (expectedCount == 0) {
+      return false;
+    }
+    // A placeholder is kept for a failed image so page order remains stable,
+    // but the chapter must not be marked downloaded until that image succeeds.
+    if (directory.existsSync() &&
+        directory
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.name.endsWith('.error.txt'))) {
       return false;
     }
     return _downloadedPageIndexes(directory, expectedCount).length >=
