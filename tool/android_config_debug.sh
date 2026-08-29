@@ -18,8 +18,8 @@ run() { "$ADB" -s "$DEVICE" "$@"; }
 check_source_scripts() {
   local source
   source="$(run shell run-as "$PACKAGE" cat files/comic_source/copy_manga.js 2>/dev/null || true)"
-  if [[ -n "$source" ]] && grep -q 'if (results\[0\]\.status !== 200)' <<<"$source" &&
-    grep -q 'Invalid status code: \${res\.status}' <<<"$source"; then
+  if [[ -n "$source" ]] && grep -A1 -q 'if (results\[0\]\.status !== 200)' <<<"$source" |\
+    grep -q 'Invalid status code: \${res\.status}'; then
     echo "WARN: device copy_manga.js contains stale res.status bug" >&2
   fi
 }
