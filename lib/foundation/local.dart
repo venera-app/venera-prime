@@ -260,10 +260,14 @@ class LocalManager with ChangeNotifier {
   }
 
   Future<void> init() async {
-    _db = sqlite3.open(
-      '${App.dataPath}/local.db',
-    );
-    _db.execute('''
+    final dbPath = '${App.dataPath}/local.db';
+    try {
+      _db = sqlite3.open(dbPath);
+      final integrity = _db.select('PRAGMA integrity_check;');
+      if (integrity.isEmpty || integrity.first[0] != 'ok') {
+        throw StateError('local database integrity check failed');
+      }
+      _db.execute('''
       CREATE TABLE IF NOT EXISTS comics (
         id TEXT NOT NULL,
         title TEXT NOT NULL,
@@ -278,6 +282,24 @@ class LocalManager with ChangeNotifier {
         PRIMARY KEY (id, comic_type)
       );
     ''');
+    } catch (e, s) {
+      Log.error('Local', 'Database is corrupt; preserving it and creating a new one: $e', s);
+      try {
+        _db.dispose();
+      } catch (_) {}
+      final backup = File('$dbPath.corrupt.${DateTime.now().millisecondsSinceEpoch}');
+      File(dbPath).renameSync(backup.path);
+      _db = sqlite3.open(dbPath);
+      _db.execute('''
+        CREATE TABLE comics (
+          id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL,
+          tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL,
+          cover TEXT NOT NULL, comic_type INTEGER NOT NULL,
+          downloadedChapters TEXT NOT NULL, created_at INTEGER,
+          PRIMARY KEY (id, comic_type)
+        );
+      ''');
+    }
     if (File(FilePath.join(App.dataPath, 'local_path')).existsSync()) {
       path = File(FilePath.join(App.dataPath, 'local_path')).readAsStringSync();
       if (!directory.existsSync()) {
