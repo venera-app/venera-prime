@@ -20,14 +20,16 @@ class LocalComicImageProvider
     File? file = comic.coverFile;
     if(! await file.exists()) {
       file = null;
-      var dir = Directory(comic.directory);
+      // Stored comic directories are relative to the configured local root.
+      var dir = Directory(comic.baseDir);
       if (! await dir.exists()) {
         throw "Error: Comic not found.";
       }
       Directory? firstDir;
       await for (var entity in dir.list()) {
         if(entity is File) {
-          if(["jpg", "jpeg", "png", "webp", "gif", "jpe", "jpeg"].contains(entity.extension)) {
+          if(["jpg", "jpeg", "png", "webp", "gif", "jpe"]
+              .contains(entity.extension.toLowerCase())) {
             file = entity;
             break;
           }
@@ -38,7 +40,8 @@ class LocalComicImageProvider
       if(file == null && firstDir != null) {
         await for (var entity in firstDir.list()) {
           if(entity is File) {
-            if(["jpg", "jpeg", "png", "webp", "gif", "jpe", "jpeg"].contains(entity.extension)) {
+            if(["jpg", "jpeg", "png", "webp", "gif", "jpe"]
+                .contains(entity.extension.toLowerCase())) {
               file = entity;
               break;
             }
