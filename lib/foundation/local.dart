@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:flutter/widgets.dart' show ChangeNotifier;
 import 'package:flutter_saf/flutter_saf.dart';
+import 'package:path/path.dart' as path_utils;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -188,6 +189,8 @@ class LocalManager with ChangeNotifier {
   /// path to the directory where all the comics are stored
   late String path;
 
+  bool _changingPath = false;
+
   Directory get directory => Directory(path);
 
   void _checkNoMedia() {
@@ -201,13 +204,25 @@ class LocalManager with ChangeNotifier {
 
   // return error message if failed
   Future<String?> setNewPath(String newPath) async {
+    if (_changingPath) {
+      return "Storage path change already in progress";
+    }
     var newDir = Directory(newPath);
     if (!await newDir.exists()) {
       return "Directory does not exist";
     }
+    final sourcePath = path_utils.canonicalize(path);
+    final destinationPath = path_utils.canonicalize(newPath);
+    if (sourcePath == destinationPath) {
+      return null;
+    }
+    if (path_utils.isWithin(sourcePath, destinationPath)) {
+      return "New storage path cannot be inside the current storage path";
+    }
     if (!await newDir.list().isEmpty) {
       return "Directory is not empty";
     }
+    _changingPath = true;
     try {
       await copyDirectoryIsolate(
         directory,
@@ -215,14 +230,16 @@ class LocalManager with ChangeNotifier {
       );
       await File(FilePath.join(App.dataPath, 'local_path'))
           .writeAsString(newPath);
+      await directory.deleteContents(recursive: true);
+      path = newPath;
+      _checkNoMedia();
+      return null;
     } catch (e, s) {
       Log.error("IO", e, s);
       return e.toString();
+    } finally {
+      _changingPath = false;
     }
-    await directory.deleteContents(recursive: true);
-    path = newPath;
-    _checkNoMedia();
-    return null;
   }
 
   Future<String> findDefaultPath() async {

@@ -257,39 +257,48 @@ class ImportComic {
     var chapters = <String>[];
     var coverPath = ''; // relative path to the cover image
     var fileList = <String>[];
+    const imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe', 'avif', 'bmp'};
     await for (var entry in directory.list()) {
       if (entry is Directory) {
-        hasChapters = true;
-        chapters.add(entry.name);
+        var chapterHasImages = false;
         await for (var file in entry.list()) {
           if (file is Directory) {
             Log.info("Import Comic",
                 "Invalid Chapter: ${entry.name}\nA directory is found in the chapter directory.");
             return null;
           }
+          if (file is File && imageExtensions.contains(file.extension.toLowerCase())) {
+            chapterHasImages = true;
+          }
+        }
+        if (chapterHasImages) {
+          hasChapters = true;
+          chapters.add(entry.name);
         }
       } else if (entry is File) {
-        const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'];
-        if (imageExtensions.contains(entry.extension)) {
+        if (imageExtensions.contains(entry.extension.toLowerCase())) {
           fileList.add(entry.name);
         }
       }
     }
 
-    if (fileList.isEmpty) {
+    if (fileList.isEmpty && !hasChapters) {
       return null;
     }
 
     fileList.sort();
-    coverPath = fileList.firstWhereOrNull((l) => l.startsWith('cover')) ??
-        fileList.first;
+    if (fileList.isNotEmpty) {
+      coverPath = fileList.firstWhereOrNull((l) => l.startsWith('cover')) ??
+          fileList.first;
+    }
 
     chapters.sort();
     if (hasChapters && coverPath == '') {
       // use the first image in the first chapter as the cover
       var firstChapter = Directory('${directory.path}/${chapters.first}');
       await for (var entry in firstChapter.list()) {
-        if (entry is File) {
+        if (entry is File &&
+            imageExtensions.contains(entry.extension.toLowerCase())) {
           coverPath = entry.name;
           break;
         }
