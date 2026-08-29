@@ -43,6 +43,7 @@ jobs:
   Build_MacOS:
     if: ${{ github.event_name == 'release' || inputs.build_macos }}
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -97,6 +98,7 @@ jobs:
   Build_IOS:
     if: ${{ github.event_name == 'release' || inputs.build_ios }}
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -125,6 +127,7 @@ jobs:
   Build_Android:
     if: ${{ github.event_name == 'release' || inputs.build_android }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -187,6 +190,7 @@ jobs:
   Build_Windows:
     if: ${{ github.event_name == 'release' || inputs.build_windows }}
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: install dependencies
@@ -212,6 +216,7 @@ jobs:
   Build_Linux:
     if: ${{ github.event_name == 'release' || inputs.build_linux }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -275,6 +280,7 @@ jobs:
   Build_Linux_ARM64:
     if: ${{ github.event_name == 'release' || inputs.build_linux_arm64 }}
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Flutter for ARM64
