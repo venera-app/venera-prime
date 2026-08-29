@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/js_engine.dart';
+import 'package:venera/foundation/log.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/io.dart';
 import 'base_image_provider.dart';
@@ -55,17 +56,17 @@ class ReaderImageProvider
       throw "Error: Empty response body.";
     }
     if (appdata.settings['enableCustomImageProcessing']) {
-      var script = appdata.settings['customImageProcessing'].toString();
-      if (!script.contains('function processImage')) {
-        return imageBytes;
-      }
-      var func = JsEngine().runCode('''
-        (() => {
-          $script
-          return processImage;
-        })()
-      ''');
-      if (func is JSInvokable) {
+      final script = appdata.settings['customImageProcessing']?.toString() ?? '';
+      try {
+        final func = JsEngine().runCode('''
+          (() => {
+            $script
+            return typeof processImage === 'function' ? processImage : null;
+          })()
+        ''');
+        if (func is! JSInvokable) {
+          return imageBytes;
+        }
         var autoFreeFunc = JSAutoFreeFunction(func);
         var result = autoFreeFunc([imageBytes, cid, eid, page, sourceKey]);
         if (result is Uint8List) {
@@ -111,6 +112,8 @@ class ReaderImageProvider
             }
           }
         }
+      } catch (e, s) {
+        Log.error('Custom Image Processing', 'Failed to process image: $e', s);
       }
     }
     return imageBytes!;
