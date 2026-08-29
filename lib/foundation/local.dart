@@ -693,12 +693,31 @@ class LocalManager with ChangeNotifier {
       Isolate.run(() async {
             var errors = <String>[];
             await SAFTaskWorker().init();
-            await overrideIO(() async {
+              await overrideIO(() async {
               for (var path in paths) {
                 var dir = Directory(path);
                 try {
+                  for (var attempt = 0; attempt < 3; attempt++) {
+                    if (!await dir.exists()) {
+                      break;
+                    }
+                    try {
+                      await dir.delete(recursive: true);
+                    } catch (e) {
+                      if (attempt == 2) rethrow;
+                    }
+                    if (!await dir.exists()) {
+                      break;
+                    }
+                    await Future.delayed(
+                      Duration(milliseconds: 100 * (attempt + 1)),
+                    );
+                  }
                   if (await dir.exists()) {
-                    await dir.delete(recursive: true);
+                    throw FileSystemException(
+                      'Directory still exists after delete retries',
+                      dir.path,
+                    );
                   }
                 } catch (e, s) {
                   errors.add(
