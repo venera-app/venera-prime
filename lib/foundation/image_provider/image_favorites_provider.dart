@@ -106,7 +106,10 @@ class ImageFavoritesProvider
       ComicType.fromKey(sourceKey),
       epIndex,
     );
-    var data = await File(images[page]).readAsBytes();
+    if (page < 1 || page > images.length) {
+      return null;
+    }
+    var data = await File(images[page - 1].replaceFirst('file://', '')).readAsBytes();
     return data;
   }
 
