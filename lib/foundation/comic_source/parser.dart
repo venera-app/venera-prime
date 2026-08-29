@@ -171,7 +171,17 @@ class ComicSourceParser {
 
     if (_checkExists("init")) {
       Future.delayed(const Duration(milliseconds: 50), () {
-        JsEngine().runCode("ComicSource.sources.$_key.init()");
+        // Keep one source's optional startup hook from becoming an unhandled
+        // promise rejection that affects the rest of the source registry.
+        JsEngine().runCode("""
+          (async function() {
+            try {
+              await ComicSource.sources.$_key.init();
+            } catch (error) {
+              console.error("Comic source init failed ($_key): " + error);
+            }
+          })();
+        """);
       });
     }
 
