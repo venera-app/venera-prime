@@ -32,7 +32,8 @@ class ReaderImageProvider
   Future<Uint8List> load(chunkEvents, checkStop) async {
     Uint8List? imageBytes;
     if (imageKey.startsWith('file://')) {
-      var file = File(imageKey);
+      // Local image keys are URI-shaped; dart:io expects a filesystem path.
+      var file = File(imageKey.substring('file://'.length));
       if (await file.exists()) {
         imageBytes = await file.readAsBytes();
       } else {
