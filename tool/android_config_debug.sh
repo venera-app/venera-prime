@@ -60,6 +60,7 @@ swipe() { run shell input swipe "$1" "$2" "$3" "$4" 700; sleep 0.1; dump; }
 DEVICE="$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')"
 [[ -n "$DEVICE" ]] || { echo "No authorized Android device" >&2; exit 2; }
 check_source_scripts
+READER_MODE="$(run shell run-as "$PACKAGE" cat files/appdata.json 2>/dev/null | sed -n 's/.*"readerMode":"\([^"]*\)".*/\1/p')"
 
 if [[ "${INSTALL_APK:-0}" == 1 ]]; then
   [[ -f "$APK" ]] || { echo "APK not found: $APK" >&2; exit 2; }
@@ -94,7 +95,11 @@ tap "$((W * 74 / 100))" "$((H * 43 / 100))" '第' 30
 before="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
 total="$(printf '%s' "$before" | sed -n 's#^.*/\([0-9][0-9]*\).*$#\1#p')"
 if [[ "$total" =~ ^[0-9]+$ && "$total" -gt 1 ]]; then
-  swipe "$((W * 82 / 100))" "$((H * 54 / 100))" "$((W * 18 / 100))" "$((H * 54 / 100))"
+  if [[ "$READER_MODE" == continuous* || "$READER_MODE" == *TopToBottom* ]]; then
+    swipe "$((W * 50 / 100))" "$((H * 78 / 100))" "$((W * 50 / 100))" "$((H * 25 / 100))"
+  else
+    swipe "$((W * 82 / 100))" "$((H * 54 / 100))" "$((W * 18 / 100))" "$((H * 54 / 100))"
+  fi
   after="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
   if [[ -z "$after" || "$before" == "$after" ]]; then
     echo "WARN: reader remained on first page after synthetic swipe ($before -> $after)" >&2
