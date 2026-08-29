@@ -741,6 +741,10 @@ class _ContinuousModeState extends State<_ContinuousMode>
     if (HardwareKeyboard.instance.isShiftPressed) {
       return;
     }
+    final animationEnabled = context.reader.enablePageAnimation(
+      context.reader.cid,
+      context.reader.type,
+    );
     var currentLocation = scrollController.position.pixels;
     var old = _futurePosition;
     _futurePosition ??= currentLocation;
@@ -762,6 +766,13 @@ class _ContinuousModeState extends State<_ContinuousMode>
     var afterOffset = (_futurePosition! - currentLocation).abs();
     if (_futurePosition == old) return;
     var target = _futurePosition!;
+    if (!animationEnabled) {
+      // Respect the reader setting for drag/trackpad scrolling as well as
+      // discrete page transitions (important for e-ink devices).
+      scrollController.jumpTo(target);
+      _futurePosition = null;
+      return;
+    }
     var duration = const Duration(milliseconds: 160);
     if (afterOffset < beforeOffset) {
       duration = duration * (afterOffset / beforeOffset);
