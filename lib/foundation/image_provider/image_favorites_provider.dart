@@ -84,10 +84,18 @@ class ImageFavoritesProvider
 
   /// Delete a image favorite cache
   static Future<void> deleteFromCache(ImageFavorite imageFavorite) async {
-    var fileName = md5.convert(imageFavorite.imageKey.codeUnits).toString();
-    var file = File(FilePath.join(App.cachePath, 'image_favorites', fileName));
-    if (file.existsSync()) {
-      await file.delete();
+    // Current cache keys include chapter identity; also remove the legacy
+    // image-only key created by older versions.
+    final keys = <String>{
+      "ImageFavorites ${imageFavorite.imageKey}@${imageFavorite.sourceKey}@${imageFavorite.id}@${imageFavorite.eid}",
+      imageFavorite.imageKey,
+    };
+    for (final key in keys) {
+      final fileName = md5.convert(key.codeUnits).toString();
+      final file = File(FilePath.join(App.cachePath, 'image_favorites', fileName));
+      if (file.existsSync()) {
+        await file.delete();
+      }
     }
   }
 
