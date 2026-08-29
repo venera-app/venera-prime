@@ -126,10 +126,12 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           }
         } else if (chapters != null) {
           for (var c in chapters!) {
-            var dir = Directory(FilePath.join(
-              downloadPath,
-              LocalManager.getChapterDirectoryName(c),
-            ));
+            var dir = Directory(
+              FilePath.join(
+                downloadPath,
+                LocalManager.getChapterDirectoryName(c),
+              ),
+            );
             try {
               if (await dir.exists()) {
                 await dir.delete(recursive: true);
@@ -433,8 +435,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           // Failed downloads leave a placeholder plus an error marker. Treat
           // those pages as missing so resume retries them and completion does
           // not persist an incomplete chapter.
-          if (File(FilePath.join(directory.path, ".$index.error.txt"))
-              .existsSync()) {
+          if (File(
+            FilePath.join(directory.path, ".$index.error.txt"),
+          ).existsSync()) {
             continue;
           }
           indexes.add(index);
@@ -454,10 +457,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     // A placeholder is kept for a failed image so page order remains stable,
     // but the chapter must not be marked downloaded until that image succeeds.
     if (directory.existsSync() &&
-        directory
-            .listSync()
-            .whereType<File>()
-            .any((file) => file.name.endsWith('.error.txt'))) {
+        directory.listSync().whereType<File>().any(
+          (file) => file.name.endsWith('.error.txt'),
+        )) {
       return false;
     }
     return _downloadedPageIndexes(directory, expectedCount).length >=
@@ -515,8 +517,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     return null;
   }
 
-  int get _maxConcurrentTasks =>
-      (appdata.settings["downloadThreads"] as num).toInt();
+  int get _maxConcurrentTasks {
+    final value = appdata.settings["downloadThreads"];
+    if (value is! num || !value.isFinite) {
+      return 1;
+    }
+    return value.toInt().clamp(1, 32);
+  }
 
   void _scheduleTasks([Set<int>? downloadedPages]) {
     if (!_isRunning) {
@@ -573,17 +580,14 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     if (comic == null) {
       _message = "Fetching comic info...";
       notifyListeners();
-      var res = await _runWithRetry(
-        () async {
-          var r = await source.loadComicInfo!(comicId);
-          if (r.error) {
-            throw r.errorMessage!;
-          } else {
-            return r.data;
-          }
-        },
-        shouldContinue: () => _isRunning,
-      );
+      var res = await _runWithRetry(() async {
+        var r = await source.loadComicInfo!(comicId);
+        if (r.error) {
+          throw r.errorMessage!;
+        } else {
+          return r.data;
+        }
+      }, shouldContinue: () => _isRunning);
       if (!_isRunning) {
         return;
       }
@@ -621,25 +625,24 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     if (_cover == null) {
       _message = "Downloading cover...";
       notifyListeners();
-      var res = await _runWithRetry(
-        () async {
-          Uint8List? data;
-          await for (var progress
-              in ImageDownloader.loadThumbnail(comic!.cover, source.key)) {
-            if (progress.imageBytes != null) {
-              data = progress.imageBytes;
-            }
+      var res = await _runWithRetry(() async {
+        Uint8List? data;
+        await for (var progress in ImageDownloader.loadThumbnail(
+          comic!.cover,
+          source.key,
+        )) {
+          if (progress.imageBytes != null) {
+            data = progress.imageBytes;
           }
-          if (data == null) {
-            throw "Failed to download cover";
-          }
-          var fileType = detectFileType(data);
-          var file = File(FilePath.join(path!, "cover${fileType.ext}"));
-          file.writeAsBytesSync(data);
-          return "file://${file.path}";
-        },
-        shouldContinue: () => _isRunning,
-      );
+        }
+        if (data == null) {
+          throw "Failed to download cover";
+        }
+        var fileType = detectFileType(data);
+        var file = File(FilePath.join(path!, "cover${fileType.ext}"));
+        file.writeAsBytesSync(data);
+        return "file://${file.path}";
+      }, shouldContinue: () => _isRunning);
       if (!_isRunning) {
         return;
       }
@@ -663,17 +666,14 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       if (comic!.chapters == null) {
         _message = "Fetching image list...";
         notifyListeners();
-        var res = await _runWithRetry(
-          () async {
-            var r = await source.loadComicPages!(comicId, null);
-            if (r.error) {
-              throw r.errorMessage!;
-            } else {
-              return r.data;
-            }
-          },
-          shouldContinue: () => _isRunning,
-        );
+        var res = await _runWithRetry(() async {
+          var r = await source.loadComicPages!(comicId, null);
+          if (r.error) {
+            throw r.errorMessage!;
+          } else {
+            return r.data;
+          }
+        }, shouldContinue: () => _isRunning);
         if (!_isRunning) {
           return;
         }
@@ -694,17 +694,14 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         for (var i in chaptersNeedingImageList) {
           _message = "Fetching image list ($cpCount/$totalCpCount)...";
           notifyListeners();
-          var res = await _runWithRetry(
-            () async {
-              var r = await source.loadComicPages!(comicId, i);
-              if (r.error) {
-                throw r.errorMessage!;
-              } else {
-                return r.data;
-              }
-            },
-            shouldContinue: () => _isRunning,
-          );
+          var res = await _runWithRetry(() async {
+            var r = await source.loadComicPages!(comicId, i);
+            if (r.error) {
+              throw r.errorMessage!;
+            } else {
+              return r.data;
+            }
+          }, shouldContinue: () => _isRunning);
           if (!_isRunning) {
             return;
           }
@@ -834,12 +831,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     }
 
     return ImagesDownloadTask(
-      source: ComicSource.find(json["source"])!,
-      comicId: json["comicId"],
-      comic:
-          json["comic"] == null ? null : ComicDetails.fromJson(json["comic"]),
-      chapters: ListOrNull.from(json["chapters"]),
-    )
+        source: ComicSource.find(json["source"])!,
+        comicId: json["comicId"],
+        comic: json["comic"] == null
+            ? null
+            : ComicDetails.fromJson(json["comic"]),
+        chapters: ListOrNull.from(json["chapters"]),
+      )
       ..path = json["path"]
       .._cover = json["cover"]
       .._images = images
@@ -965,7 +963,11 @@ class _ImageDownloadWrapper {
     int lastBytes = 0;
     try {
       await for (var p in ImageDownloader.loadComicImageUnwrapped(
-          image, task.source.key, task.comicId, chapter)) {
+        image,
+        task.source.key,
+        task.comicId,
+        chapter,
+      )) {
         if (isCancelled) {
           return;
         }
@@ -998,13 +1000,11 @@ class _ImageDownloadWrapper {
       retry--;
       if (retry > 0) {
         unawaited(
-          Future.delayed(Duration(seconds: _retryDelaySeconds())).then(
-            (_) {
-              if (!isCancelled) {
-                start();
-              }
-            },
-          ),
+          Future.delayed(Duration(seconds: _retryDelaySeconds())).then((_) {
+            if (!isCancelled) {
+              start();
+            }
+          }),
         );
         return;
       }
@@ -1110,8 +1110,9 @@ class ArchiveDownloadTask extends DownloadTask {
     if (path != null) {
       await Directory(path!).deleteIgnoreError(recursive: true);
     }
-    var archiveFile =
-        File(FilePath.join(App.dataPath, "archive_downloading.zip"));
+    var archiveFile = File(
+      FilePath.join(App.dataPath, "archive_downloading.zip"),
+    );
     await archiveFile.deleteIgnoreError();
     await File("${archiveFile.path}.download").deleteIgnoreError();
     path = null;
@@ -1181,8 +1182,9 @@ class ArchiveDownloadTask extends DownloadTask {
       path = dir.path;
     }
 
-    var archiveFile =
-        File(FilePath.join(App.dataPath, "archive_downloading.zip"));
+    var archiveFile = File(
+      FilePath.join(App.dataPath, "archive_downloading.zip"),
+    );
 
     Log.info("Download", "Downloading $archiveUrl");
 
