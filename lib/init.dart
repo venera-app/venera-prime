@@ -37,15 +37,13 @@ extension _FutureInit<T> on Future<T> {
 Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
+  // Load only local state required to render the first frame. Network-backed
+  // services and comic source parsing continue after runApp.
   try {
     var futures = [
-      Rhttp.init(),
       App.initComponents(),
-      SAFTaskWorker().init().wait(),
       AppTranslation.init().wait(),
       TagsTranslation.readData().wait(),
-      JsEngine().init().wait(),
-      ComicSourceManager().init().wait(),
       OpenCC.init(),
     ];
     await Future.wait(futures);
@@ -53,16 +51,34 @@ Future<void> init() async {
     Log.error("init", "$e\n$s");
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
-  _checkOldConfigs();
+  unawaited(_initBackground());
+  _installRuntimeHandlers();
+}
+
+Future<void> _initBackground() async {
+  try {
+    await Future.wait([
+      Rhttp.init(),
+      SAFTaskWorker().init().wait(),
+      JsEngine().init().wait(),
+    ]);
+    await ComicSourceManager().init().wait();
+    _checkOldConfigs();
+  } catch (e, s) {
+    Log.error("background init", "$e\n$s");
+  }
   if (App.isAndroid) {
     handleLinks();
     handleTextShare();
     try {
       await FlutterDisplayMode.setHighRefreshRate();
-    } catch(e) {
+    } catch (e) {
       Log.error("Display Mode", "Failed to set high refresh rate: $e");
     }
   }
+}
+
+void _installRuntimeHandlers() {
   FlutterError.onError = (details) {
     Log.error("Unhandled Exception", "${details.exception}\n${details.stack}");
   };
@@ -96,9 +112,12 @@ void _checkOldConfigs() {
     appdata.writeImplicitData();
   }
 
-  if (appdata.settings['comicSourceListUrl'].toString().contains("git.nyne.dev")) {
+  if (appdata.settings['comicSourceListUrl'].toString().contains(
+    "git.nyne.dev",
+  )) {
     // migrate to jsdelivr cdn
-    appdata.settings['comicSourceListUrl'] = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
+    appdata.settings['comicSourceListUrl'] =
+        "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
     appdata.saveData();
   }
 }
