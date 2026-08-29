@@ -467,6 +467,21 @@ class LocalManager with ChangeNotifier {
         if (entity.name.startsWith('.')) {
           continue;
         }
+        // Ignore metadata and unrelated files; passing them to the image
+        // decoder can crash when a local comic folder contains extra files.
+        const imageExtensions = {
+          'jpg',
+          'jpeg',
+          'png',
+          'webp',
+          'gif',
+          'jpe',
+          'avif',
+          'bmp',
+        };
+        if (!imageExtensions.contains(entity.extension.toLowerCase())) {
+          continue;
+        }
         files.add(entity);
       }
     }
