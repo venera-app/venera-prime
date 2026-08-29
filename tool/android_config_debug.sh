@@ -32,6 +32,18 @@ wait_for() {
   done
   return 1
 }
+wait_for_result() {
+  local timeout="${1:-30}" deadline=$((SECONDS + timeout))
+  while ((SECONDS < deadline)); do
+    dump
+    if has 'No Search Sources' || has '请添加一些源' || has '错误' ||
+      has 'ONE' || has 'One' || has 'one'; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
 tap() { run shell input tap "$1" "$2"; wait_for "$3" "${4:-15}" || die "timeout waiting for $3"; }
 swipe() { run shell input swipe "$1" "$2" "$3" "$4" 700; sleep 0.1; dump; }
 
@@ -56,7 +68,7 @@ tap "$((W * 47 / 100))" "$((H * 15 / 100))" '搜索' 15
 run shell input tap "$((W * 55 / 100))" "$((H * 8 / 100))"
 run shell input text "${QUERY// /%s}"
 run shell input keyevent 66
-wait_for '搜索于' "${SEARCH_TIMEOUT:-30}" || die 'search page did not load'
+wait_for_result "${SEARCH_TIMEOUT:-30}" || die 'search result did not load'
 if has 'No Search Sources' || has '请添加一些源'; then die 'imported config has no active search source'; fi
 has 'One' || has 'ONE' || has 'one' || die "search returned no matching result for: $QUERY"
 
@@ -72,7 +84,9 @@ tap "$((W * 74 / 100))" "$((H * 43 / 100))" '第' 30
 before="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
 total="$(printf '%s' "$before" | sed -n 's#^.*/\([0-9][0-9]*\).*$#\1#p')"
 if [[ "$total" =~ ^[0-9]+$ && "$total" -gt 1 ]]; then
-  swipe "$((W * 82 / 100))" "$((H * 54 / 100))" "$((W * 18 / 100))" "$((H * 54 / 100))"
+  run shell input tap "$((W * 92 / 100))" "$((H * 50 / 100))"
+  sleep 0.1
+  wait_for '第' 10 || true
   after="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
   [[ -n "$after" && "$before" != "$after" ]] || die "reader page did not advance ($before -> $after)"
 else
