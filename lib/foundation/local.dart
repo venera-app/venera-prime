@@ -342,7 +342,9 @@ class LocalManager with ChangeNotifier {
 
   Future<void> add(LocalComic comic, [String? id]) async {
     var old = find(id ?? comic.id, comic.comicType);
-    var downloaded = comic.downloadedChapters;
+    // A resumed task may report chapters already present in the database.
+    // Merge idempotently so retries never duplicate chapter identifiers.
+    var downloaded = <String>{...comic.downloadedChapters};
     if (old != null) {
       downloaded.addAll(old.downloadedChapters);
     }
@@ -357,7 +359,7 @@ class LocalManager with ChangeNotifier {
         jsonEncode(comic.chapters),
         comic.cover,
         comic.comicType.value,
-        jsonEncode(downloaded),
+        jsonEncode(downloaded.toList()),
         comic.createdAt.millisecondsSinceEpoch,
       ],
     );
@@ -579,6 +581,9 @@ class LocalManager with ChangeNotifier {
   }
 
   void addTask(DownloadTask task) {
+    if (downloadingTasks.contains(task)) {
+      return;
+    }
     downloadingTasks.add(task);
     notifyListeners();
     saveCurrentDownloadingTasks();
