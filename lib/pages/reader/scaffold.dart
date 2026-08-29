@@ -257,13 +257,6 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
   void addImageFavorite() async {
     try {
-      if (context.reader.images![0].contains('file://')) {
-        showToast(
-          message: "Local comic collection is not supported at present".tl,
-          context: context,
-        );
-        return;
-      }
       String id = context.reader.cid;
       int ep = context.reader.chapter;
       String eid = context.reader.eid;
