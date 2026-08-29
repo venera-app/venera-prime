@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/log.dart';
 import 'package:venera/network/proxy.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/translations.dart';
@@ -92,22 +93,22 @@ class _AppWebviewState extends State<AppWebview> {
   late var future = _createWebviewEnvironment();
 
   Future<bool> _createWebviewEnvironment() async {
-    var proxy = appdata.settings['proxy'].toString();
-    if (proxy != "system" && proxy != "direct") {
-      var proxyAvailable = await WebViewFeature.isFeatureSupported(
-        WebViewFeature.PROXY_OVERRIDE,
-      );
-      if (proxyAvailable) {
-        ProxyController proxyController = ProxyController.instance();
-        await proxyController.clearProxyOverride();
-        if (!proxy.contains("://")) {
-          proxy = "http://$proxy";
+    var proxy = appdata.settings['proxy']?.toString() ?? 'system';
+    if (await WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+      final proxyController = ProxyController.instance();
+      await proxyController.clearProxyOverride();
+      if (proxy != "system" && proxy != "direct") {
+        final proxyUrl = proxy.contains("://") ? proxy : "http://$proxy";
+        final uri = Uri.tryParse(proxyUrl);
+        if (uri != null && uri.host.isNotEmpty && uri.port > 0) {
+          try {
+            await proxyController.setProxyOverride(
+              settings: ProxySettings(proxyRules: [ProxyRule(url: proxyUrl)]),
+            );
+          } catch (e, s) {
+            Log.error("WebView", "Invalid proxy configuration", s);
+          }
         }
-        await proxyController.setProxyOverride(
-          settings: ProxySettings(
-            proxyRules: [ProxyRule(url: proxy)],
-          ),
-        );
       }
     }
     if (!App.isWindows) {
