@@ -497,6 +497,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
           loadingController.setProgress(current / comics.length);
         }
         if (canceled) {
+          loadingController.close();
           return;
         }
       }
@@ -516,6 +517,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
       await ZipFile.compressFolderAsync(cacheDir, outFile);
       if (canceled) {
         File(outFile).deleteIgnoreError();
+        loadingController.close();
         return;
       }
     } catch (e, s) {
