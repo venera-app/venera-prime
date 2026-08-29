@@ -47,17 +47,24 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void search([String? text]) {
+    final keyword = (text ?? controller.text).trim();
+    if (keyword.isEmpty) {
+      return;
+    }
     if (aggregatedSearch) {
+      // AggregatedSearchPage does not pass through SearchResultPage, so save
+      // the query here to keep aggregated searches in search history.
+      appdata.addSearchHistory(keyword);
       context
           .to(
-            () => AggregatedSearchPage(keyword: text ?? controller.text)
+            () => AggregatedSearchPage(keyword: keyword)
           )
           .then((_) => update());
     } else {
       context
           .to(
             () => SearchResultPage(
-              text: text ?? controller.text,
+              text: keyword,
               sourceKey: searchTarget,
               options: options,
             )
