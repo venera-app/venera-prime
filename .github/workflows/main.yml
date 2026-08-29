@@ -231,6 +231,38 @@ jobs:
           sudo rm -rf build/linux/arch/pkg
           sudo rm -rf build/linux/arch/src
           sudo rm -rf build/linux/arch/PKGBUILD
+      - name: Build AppImage
+        run: |
+          sudo apt-get install -y libfuse2
+          curl -L --fail -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          BUNDLE_DIR=$(find build/linux -type d -path '*/release/bundle' -print -quit)
+          test -n "$BUNDLE_DIR"
+          rm -rf VeneraPrime.AppDir
+          cp -a "$BUNDLE_DIR" VeneraPrime.AppDir
+          cat > VeneraPrime.AppDir/venera.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Venera Prime
+          Exec=venera
+          Icon=venera
+          Type=Application
+          Categories=Utility;
+          EOF
+          cp assets/app_icon.png VeneraPrime.AppDir/venera.png
+          cat > VeneraPrime.AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/venera" "$@"
+          EOF
+          chmod +x VeneraPrime.AppDir/AppRun
+          APP_VERSION=$(grep '^version:' pubspec.yaml | cut -d':' -f2 | tr -d ' ' | cut -d'+' -f1)
+          mkdir -p build/linux/appimage
+          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool VeneraPrime.AppDir "build/linux/appimage/Venera-Prime-${APP_VERSION}-x86_64.AppImage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage_build
+          path: build/linux/appimage/
       - uses: actions/upload-artifact@v4
         with:
           name: deb_build
@@ -260,6 +292,38 @@ jobs:
         run: |
           dart run patch/font.dart
       - run: python3 debian/build.py arm64
+      - name: Build AppImage
+        run: |
+          sudo apt-get install -y libfuse2
+          curl -L --fail -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage
+          chmod +x appimagetool
+          BUNDLE_DIR=$(find build/linux -type d -path '*/release/bundle' -print -quit)
+          test -n "$BUNDLE_DIR"
+          rm -rf VeneraPrime.AppDir
+          cp -a "$BUNDLE_DIR" VeneraPrime.AppDir
+          cat > VeneraPrime.AppDir/venera.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Venera Prime
+          Exec=venera
+          Icon=venera
+          Type=Application
+          Categories=Utility;
+          EOF
+          cp assets/app_icon.png VeneraPrime.AppDir/venera.png
+          cat > VeneraPrime.AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE:${LD_LIBRARY_PATH:-}"
+          exec "$HERE/venera" "$@"
+          EOF
+          chmod +x VeneraPrime.AppDir/AppRun
+          APP_VERSION=$(grep '^version:' pubspec.yaml | cut -d':' -f2 | tr -d ' ' | cut -d'+' -f1)
+          mkdir -p build/linux/appimage
+          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool VeneraPrime.AppDir "build/linux/appimage/Venera-Prime-${APP_VERSION}-aarch64.AppImage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage_arm64_build
+          path: build/linux/appimage/
       - uses: actions/upload-artifact@v4
         with:
           name: deb_arm64_build
