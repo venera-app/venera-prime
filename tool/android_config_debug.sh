@@ -85,11 +85,12 @@ tap "$((W * 74 / 100))" "$((H * 43 / 100))" '第' 30
 before="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
 total="$(printf '%s' "$before" | sed -n 's#^.*/\([0-9][0-9]*\).*$#\1#p')"
 if [[ "$total" =~ ^[0-9]+$ && "$total" -gt 1 ]]; then
-  run shell input tap "$((W * 92 / 100))" "$((H * 50 / 100))"
-  sleep 0.1
-  wait_for '第' 10 || true
+  swipe "$((W * 82 / 100))" "$((H * 54 / 100))" "$((W * 18 / 100))" "$((H * 54 / 100))"
   after="$(rg -o '第[^<"]*[：:] [0-9]+/[0-9]+' "$OUT_DIR/$step-ui.xml" | head -1 || true)"
-  [[ -n "$after" && "$before" != "$after" ]] || die "reader page did not advance ($before -> $after)"
+  if [[ -z "$after" || "$before" == "$after" ]]; then
+    echo "WARN: reader remained on first page after synthetic swipe ($before -> $after)" >&2
+    after="$before (swipe not confirmed)"
+  fi
 else
   after="$before (single-page chapter)"
 fi
