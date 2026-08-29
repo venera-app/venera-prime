@@ -75,7 +75,6 @@ class ComicSourceManager with ChangeNotifier, Init {
 
   Future reload() async {
     _sources.clear();
-    ComicSourceParser._initSequence = 0;
     JsEngine().runCode("ComicSource.sources = {};");
     await doInit();
     notifyListeners();
