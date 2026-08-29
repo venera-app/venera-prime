@@ -39,13 +39,9 @@ Future<void> init() async {
   await SingleInstanceCookieJar.createInstance();
   try {
     var futures = [
-      Rhttp.init(),
       App.initComponents(),
-      SAFTaskWorker().init().wait(),
       AppTranslation.init().wait(),
       TagsTranslation.readData().wait(),
-      JsEngine().init().wait(),
-      ComicSourceManager().init().wait(),
       OpenCC.init(),
     ];
     await Future.wait(futures);
@@ -53,7 +49,7 @@ Future<void> init() async {
     Log.error("init", "$e\n$s");
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
-  _checkOldConfigs();
+  unawaited(_initComicSources());
   if (App.isAndroid) {
     handleLinks();
     handleTextShare();
@@ -73,6 +69,22 @@ Future<void> init() async {
       const methodChannel = MethodChannel('venera/method_channel');
       methodChannel.invokeMethod("heartBeat");
     });
+  }
+}
+
+Future<void> _initComicSources() async {
+  await Future<void>.delayed(const Duration(milliseconds: 500));
+  try {
+    await Future.wait([
+      Rhttp.init(),
+      SAFTaskWorker().init().wait(),
+      JsEngine().init().wait(),
+    ]);
+    await ComicSourceManager().init().wait();
+    _checkOldConfigs();
+    ComicSourceManager().notifyStateChange();
+  } catch (e, s) {
+    Log.error("comic source init", "$e\n$s");
   }
 }
 

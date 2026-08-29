@@ -342,8 +342,13 @@ class LocalManager with ChangeNotifier {
     }
     await _checkPathValidation();
     _checkNoMedia();
-    await ComicSourceManager().ensureInit();
-    restoreDownloadingTasks();
+    // Download task metadata references source definitions, but it is not
+    // required to render the first frame. Restore it once sources are ready.
+    unawaited(
+      ComicSourceManager().ensureInit().then((_) {
+        restoreDownloadingTasks();
+      }),
+    );
   }
 
   String findValidId(ComicType type) {
