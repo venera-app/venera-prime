@@ -19,10 +19,18 @@ Future<String?> getProxy() async {
 }
 
 Future<String?> _getProxy() async {
-  if ((appdata.settings['proxy'] as String).removeAllBlank == "direct") {
+  final configuredProxy = appdata.settings['proxy']?.toString() ?? 'system';
+  if (configuredProxy.removeAllBlank == "direct") {
     return null;
   }
-  if (appdata.settings['proxy'] != "system") return appdata.settings['proxy'];
+  if (configuredProxy != "system") {
+    final uri = Uri.tryParse(configuredProxy);
+    if (uri != null && uri.host.isNotEmpty && uri.port > 0) {
+      return configuredProxy;
+    }
+    // Invalid persisted proxy settings must not prevent normal networking.
+    return null;
+  }
 
   String res;
   if (!App.isLinux) {
