@@ -15,6 +15,14 @@ mkdir -p "$OUT_DIR"
 fail=0; step=0
 die() { echo "FAIL: $*" >&2; fail=1; }
 run() { "$ADB" -s "$DEVICE" "$@"; }
+check_source_scripts() {
+  local source
+  source="$(run shell run-as "$PACKAGE" cat files/comic_source/copy_manga.js 2>/dev/null || true)"
+  if [[ -n "$source" ]] && grep -q 'if (results\[0\]\.status !== 200)' <<<"$source" &&
+    grep -q 'Invalid status code: \${res\.status}' <<<"$source"; then
+    echo "WARN: device copy_manga.js contains stale res.status bug" >&2
+  fi
+}
 dump() {
   step=$((step + 1))
   run shell uiautomator dump "/sdcard/venera-debug.xml" >/dev/null 2>&1 || die "uiautomator dump"
@@ -51,6 +59,7 @@ swipe() { run shell input swipe "$1" "$2" "$3" "$4" 700; sleep 0.1; dump; }
 [[ -x "$ADB" ]] || { echo "ADB not found: $ADB" >&2; exit 2; }
 DEVICE="$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')"
 [[ -n "$DEVICE" ]] || { echo "No authorized Android device" >&2; exit 2; }
+check_source_scripts
 
 if [[ "${INSTALL_APK:-0}" == 1 ]]; then
   [[ -f "$APK" ]] || { echo "APK not found: $APK" >&2; exit 2; }
