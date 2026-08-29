@@ -660,11 +660,12 @@ class _WebdavSettingState extends State<_WebdavSetting> {
     if (appdata.settings['webdav'] is! List) {
       appdata.settings['webdav'] = [];
     }
-    if (appdata.settings['disableSyncFields'].trim().isNotEmpty) {
-      disableSync = appdata.settings['disableSyncFields'];
+    final rawDisableSync = appdata.settings['disableSyncFields'];
+    if (rawDisableSync is String && rawDisableSync.trim().isNotEmpty) {
+      disableSync = rawDisableSync;
     }
     var configs = appdata.settings['webdav'] as List;
-    if (configs.whereType<String>().length != 3) {
+    if (configs.length != 3 || configs.any((value) => value is! String)) {
       return;
     }
     url = configs[0];
