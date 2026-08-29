@@ -69,25 +69,36 @@ class _ReaderImagesState extends State<_ReaderImages> {
       }
     } else {
       var cp = reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1);
-      var res = await reader.type.comicSource!.loadComicPages!(
-        reader.widget.cid,
-        cp,
-      );
-      if (res.error) {
-        setState(() {
-          error = res.errorMessage;
-          reader.isLoading = false;
-          inProgress = false;
-        });
-      } else {
-        setState(() {
-          reader.images = res.data;
-          reader.isLoading = false;
-          inProgress = false;
-          _handleJumpToLastPage();
-          Future.microtask(() {
-            reader.updateHistory();
+      try {
+        var res = await reader.type.comicSource!.loadComicPages!(
+          reader.widget.cid,
+          cp,
+        );
+        if (res.error) {
+          if (!mounted) return;
+          setState(() {
+            error = res.errorMessage;
+            reader.isLoading = false;
+            inProgress = false;
           });
+        } else {
+          if (!mounted) return;
+          setState(() {
+            reader.images = res.data;
+            reader.isLoading = false;
+            inProgress = false;
+            _handleJumpToLastPage();
+            Future.microtask(() {
+              reader.updateHistory();
+            });
+          });
+        }
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          error = e.toString();
+          reader.isLoading = false;
+          inProgress = false;
         });
       }
     }
