@@ -41,7 +41,9 @@ Future<void> init() async {
   // services and comic source parsing continue after runApp.
   try {
     var futures = [
-      App.initComponents(),
+      // Settings are needed by MyApp; large history/favorites/local stores
+      // are initialized after the first frame.
+      appdata.init(),
       AppTranslation.init().wait(),
       TagsTranslation.readData().wait(),
       OpenCC.init(),
@@ -64,6 +66,9 @@ Future<void> _initBackground() async {
       Rhttp.init(),
       SAFTaskWorker().init().wait(),
       JsEngine().init().wait(),
+      App.history.init(),
+      App.favorites.init(),
+      App.local.init(),
     ]);
     await ComicSourceManager().init().wait();
     _checkOldConfigs();
