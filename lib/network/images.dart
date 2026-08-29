@@ -6,6 +6,7 @@ import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/utils/image.dart';
+import 'package:venera/utils/file_type.dart';
 
 import 'app_dio.dart';
 
@@ -18,11 +19,15 @@ abstract class ImageDownloader {
 
     if (cache != null) {
       var data = await cache.readAsBytes();
-      yield ImageDownloadProgress(
-        currentBytes: data.length,
-        totalBytes: data.length,
-        imageBytes: data,
-      );
+      if (detectFileType(data).mime.startsWith('image/')) {
+        yield ImageDownloadProgress(
+          currentBytes: data.length,
+          totalBytes: data.length,
+          imageBytes: data,
+        );
+      } else {
+        await CacheManager().delete(cacheKey);
+      }
     }
 
     var configs = <String, dynamic>{};
@@ -58,6 +63,9 @@ abstract class ImageDownloader {
     }
     var req = await dio.request<ResponseBody>(requestUrl,
         data: configs['data']);
+    if ((req.statusCode ?? 0) >= 400) {
+      throw Exception("Invalid Status Code: ${req.statusCode}");
+    }
     var stream = req.data?.stream ?? (throw "Error: Empty response body.");
     int? expectedBytes = req.data!.contentLength;
     if (expectedBytes == -1) {
@@ -128,11 +136,15 @@ abstract class ImageDownloader {
 
     if (cache != null) {
       var data = await cache.readAsBytes();
-      yield ImageDownloadProgress(
-        currentBytes: data.length,
-        totalBytes: data.length,
-        imageBytes: data,
-      );
+      if (detectFileType(data).mime.startsWith('image/')) {
+        yield ImageDownloadProgress(
+          currentBytes: data.length,
+          totalBytes: data.length,
+          imageBytes: data,
+        );
+      } else {
+        await CacheManager().delete(cacheKey);
+      }
     }
 
     Future<Map<String, dynamic>?> Function()? onLoadFailed;
@@ -170,6 +182,9 @@ abstract class ImageDownloader {
 
         var req = await dio.request<ResponseBody>(configs['url'] ?? imageKey,
             data: configs['data']);
+        if ((req.statusCode ?? 0) >= 400) {
+          throw Exception("Invalid Status Code: ${req.statusCode}");
+        }
         var stream = req.data?.stream ?? (throw "Error: Empty response body.");
         int? expectedBytes = req.data!.contentLength;
         if (expectedBytes == -1) {
