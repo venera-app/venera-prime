@@ -290,7 +290,7 @@ class PdfGenerator {
     write('/Author <');
     writeData(_toPdfString(author));
     write('>\n');
-    write('/Producer (venera v${App.version})\n');
+    write('/Producer (Venera Prime v${App.version})\n');
     write('/CreationDate (D:${_formatDateTime(DateTime.now())})\n');
     write('>>\nendobj\n\n');
 

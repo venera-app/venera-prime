@@ -52,13 +52,22 @@ Future<ComicUpdateResult> updateComic(
       var updated = false;
       var updateTime = newInfo.findUpdateTime();
       if (updateTime != null && updateTime != c.updateTime) {
+        // MangaDex used to expose the manga metadata timestamp. The bundled
+        // source now exposes a chapter marker instead; migrate that value
+        // without reporting a phantom update for existing favorites.
+        var isMangaDexMarkerMigration =
+            c.type.sourceKey == "manga_dex" &&
+            c.updateTime != null &&
+            DateTime.tryParse(c.updateTime!) != null &&
+            updateTime.contains("|");
         LocalFavoritesManager().updateUpdateTime(
           folder,
           c.id,
           c.type,
           updateTime,
+          markNewUpdate: !isMangaDexMarkerMigration,
         );
-        updated = true;
+        updated = !isMangaDexMarkerMigration;
       } else {
         LocalFavoritesManager().updateCheckTime(folder, c.id, c.type);
       }

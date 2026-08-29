@@ -40,7 +40,7 @@ class _AboutSettingsState extends State<AboutSettings> {
               "V${App.version}",
               style: const TextStyle(fontSize: 16),
             ),
-            Text("Venera is a free and open-source app for comic reading.".tl),
+            Text("Venera Prime is a free and open-source app for comic reading.".tl),
             const SizedBox(height: 8),
           ],
         ).toSliver(),
@@ -69,7 +69,7 @@ class _AboutSettingsState extends State<AboutSettings> {
           title: const Text("Github"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://github.com/venera-app/venera");
+            launchUrlString("https://github.com/venera-app/venera-prime");
           },
         ).toSliver(),
         ListTile(
@@ -86,7 +86,7 @@ class _AboutSettingsState extends State<AboutSettings> {
 
 Future<bool> checkUpdate() async {
   var res = await AppDio()
-      .get("https://cdn.jsdelivr.net/gh/venera-app/venera@master/pubspec.yaml");
+      .get("https://cdn.jsdelivr.net/gh/venera-app/venera-prime@master/pubspec.yaml");
   if (res.statusCode == 200) {
     var data = loadYaml(res.data);
     if (data["version"] != null) {
@@ -117,7 +117,7 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
                   onPressed: () {
                     Navigator.pop(context);
                     launchUrlString(
-                        "https://github.com/venera-app/venera/releases");
+                        "https://github.com/venera-app/venera-prime/releases");
                   },
                   child: Text("Update".tl),
                 ),
