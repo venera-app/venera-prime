@@ -605,21 +605,32 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     }
 
     String formatTime(String time) {
+      // Sources may append an opaque update identity after the timestamp
+      // (for example MangaDex: `timestamp|chapter|language`). Display only
+      // the human-readable timestamp while retaining the full value for
+      // follow-updates comparisons.
+      if (time.contains('|')) {
+        time = time.split('|').first;
+      }
       if (int.tryParse(time) != null) {
         var t = int.tryParse(time);
+        String formatDate(DateTime value) {
+          String two(int v) => v.toString().padLeft(2, '0');
+          return "${value.year}-${value.month}-${value.day} "
+              "${two(value.hour)}:${two(value.minute)}:${two(value.second)}";
+        }
+
         if (t! > 1000000000000) {
-          return DateTime.fromMillisecondsSinceEpoch(
-            t,
-          ).toString().substring(0, 19);
+          return formatDate(DateTime.fromMillisecondsSinceEpoch(t));
         } else {
-          return DateTime.fromMillisecondsSinceEpoch(
-            t * 1000,
-          ).toString().substring(0, 19);
+          return formatDate(DateTime.fromMillisecondsSinceEpoch(t * 1000));
         }
       }
       if (time.contains('T') || time.contains('Z')) {
         var t = DateTime.parse(time);
-        return t.toString().substring(0, 19);
+        String two(int v) => v.toString().padLeft(2, '0');
+        return "${t.year}-${t.month}-${t.day} "
+            "${two(t.hour)}:${two(t.minute)}:${two(t.second)}";
       }
       return time;
     }

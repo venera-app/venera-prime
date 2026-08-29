@@ -189,25 +189,45 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
 
   /// Sort comics by update time in descending order with nulls at the end.
   void sortComics() {
+    DateTime? parseUpdateTime(String value) {
+      var timestamp = value.split("|").first.trim();
+      var parsed = DateTime.tryParse(timestamp);
+      if (parsed != null) return parsed;
+
+      // Some sources use non-padded ISO-like dates (for example
+      // `2026-8-12`), which DateTime.tryParse intentionally rejects.
+      var match = RegExp(
+        r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$',
+      ).firstMatch(timestamp);
+      if (match == null) return null;
+      var year = int.parse(match.group(1)!);
+      var month = int.parse(match.group(2)!);
+      var day = int.parse(match.group(3)!);
+      var hour = int.tryParse(match.group(4) ?? '0') ?? 0;
+      var minute = int.tryParse(match.group(5) ?? '0') ?? 0;
+      var second = int.tryParse(match.group(6) ?? '0') ?? 0;
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      return DateTime(year, month, day, hour, minute, second);
+    }
+
     allComics.sort((a, b) {
       if (a.updateTime == null && b.updateTime == null) {
         return 0;
       } else if (a.updateTime == null) {
-        return -1;
-      } else if (b.updateTime == null) {
         return 1;
+      } else if (b.updateTime == null) {
+        return -1;
       }
       try {
-        var aNums = a.updateTime!.split('-').map(int.parse).toList();
-        var bNums = b.updateTime!.split('-').map(int.parse).toList();
-        for (int i = 0; i < aNums.length; i++) {
-          if (aNums[i] != bNums[i]) {
-            return bNums[i] - aNums[i];
-          }
+        var aDate = parseUpdateTime(a.updateTime!);
+        var bDate = parseUpdateTime(b.updateTime!);
+        if (aDate != null && bDate != null) {
+          var comparison = bDate.compareTo(aDate);
+          if (comparison != 0) return comparison;
         }
-        return 0;
+        return b.updateTime!.compareTo(a.updateTime!);
       } catch (_) {
-        return 0;
+        return b.updateTime!.compareTo(a.updateTime!);
       }
     });
   }

@@ -300,6 +300,15 @@ class ComicDetails with HistoryMixin {
 
   String? findUpdateTime() {
     if (updateTime != null) {
+      // Some sources need more than a calendar date to identify an update
+      // (for example MangaDex uses `timestamp|chapter|language`). Keep the
+      // opaque suffix while validating the timestamp prefix.
+      if (updateTime!.contains("|")) {
+        var prefix = updateTime!.split("|").first;
+        if (DateTime.tryParse(prefix) != null) {
+          return updateTime;
+        }
+      }
       return _validateUpdateTime(updateTime!);
     }
     const acceptedNamespaces = [

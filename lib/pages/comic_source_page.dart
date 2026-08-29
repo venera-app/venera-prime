@@ -809,43 +809,58 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
         SliverPadding(padding: const EdgeInsets.only(top: 16)),
         SliverToBoxAdapter(
           child: ListTile(
-            title: Row(
-              children: [
-                Text(source.name, style: ts.s18),
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    source.version,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                if (hasUpdate)
-                  Tooltip(
-                    message: newVersion,
-                    child: Container(
+            title: LayoutBuilder(
+              builder: (context, constraints) {
+                return Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth,
+                      ),
+                      child: Text(
+                        source.name,
+                        style: ts.s18,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
+                        horizontal: 8,
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: context.colorScheme.primaryContainer,
+                        color: context.colorScheme.surfaceContainer,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        "New Version".tl,
+                        source.version,
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
-                  ).paddingLeft(4),
-              ],
+                    if (hasUpdate)
+                      Tooltip(
+                        message: newVersion,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: context.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "New Version".tl,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -899,7 +914,7 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
   Iterable<Widget> buildSourceSettings() sync* {
     // Try to get dynamic settings first (for getters), fall back to cached settings
     var settingsMap = source.getSettingsDynamic() ?? source.settings;
-    
+
     if (settingsMap == null) {
       return;
     } else if (source.data['settings'] == null) {

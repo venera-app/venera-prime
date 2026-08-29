@@ -1,4 +1,4 @@
-import 'dart:async' show Future;
+import 'dart:async' show Future, unawaited;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/favorites.dart';
@@ -19,6 +19,11 @@ class HistoryImageProvider
   final History history;
 
   final String _key;
+
+  // Refreshing every visible history item on every rebuild would create a
+  // burst of source requests. Keep a process-local refresh timestamp instead.
+  static final _sourceRefreshAt = <String, DateTime>{};
+  static const _sourceRefreshInterval = Duration(hours: 6);
 
   Future<Uint8List> _loadThumbnail(String url, chunkEvents, checkStop) async {
     await for (var progress in ImageDownloader.loadThumbnail(
@@ -61,11 +66,35 @@ class HistoryImageProvider
     if (comic.error) {
       throw comic.errorMessage ?? "Failed to load comic info";
     }
-    history.title = comic.data.title;
-    history.subtitle = comic.data.subTitle ?? '';
-    history.cover = comic.data.cover;
-    HistoryManager().addHistory(history);
-    return comic.data.cover;
+    final title = comic.data.title;
+    final subtitle = comic.data.subTitle ?? '';
+    final cover = comic.data.cover;
+    if (history.title != title ||
+        history.subtitle != subtitle ||
+        history.cover != cover) {
+      history.title = title;
+      history.subtitle = subtitle;
+      history.cover = cover;
+      HistoryManager().addHistory(history);
+    }
+    return cover;
+  }
+
+  void _scheduleSourceRefresh() {
+    if (history.sourceKey == 'local' || history.type.comicSource == null) {
+      return;
+    }
+    final refreshKey = '${history.type.value}:${history.id}';
+    final now = DateTime.now();
+    final lastRefresh = _sourceRefreshAt[refreshKey];
+    if (lastRefresh != null &&
+        now.difference(lastRefresh) < _sourceRefreshInterval) {
+      return;
+    }
+    _sourceRefreshAt[refreshKey] = now;
+    unawaited(
+      _refreshCoverFromSource().then<void>((_) {}, onError: (_, __) {}),
+    );
   }
 
   void _saveCover(String cover) {
@@ -110,6 +139,10 @@ class HistoryImageProvider
     if (url.contains('/')) {
       var data = await tryLoad(url);
       if (data != null) {
+        // The stored URL is still usable, but it may be an old cover. Return
+        // it immediately and refresh metadata in the background so a changed
+        // source cover is persisted and the history page rebuilds.
+        _scheduleSourceRefresh();
         return data;
       }
     }

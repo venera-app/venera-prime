@@ -2,7 +2,7 @@ name: venera
 description: "A comic app."
 publish_to: 'none'
 
-version: 2.0.0+200
+version: 2.0.1+201
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -109,11 +109,11 @@ flutter:
 # fonts:
 
 flutter_to_arch:
-  name: Venera
+  name: Venera Prime
   icon: debian/gui/venera.png
   categories: Utility
   keywords: Flutter;comic;images;
-  url: https://github.com/venera-app/venera
+  url: https://github.com/venera-app/venera-prime
   depends:
     - gtk3
     - webkit2gtk-4.1

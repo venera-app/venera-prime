@@ -780,7 +780,11 @@ class _SliverGridComicsState extends State<SliverGridComics> {
 
   @override
   void didUpdateWidget(covariant SliverGridComics oldWidget) {
-    if (!comics.isEqualTo(widget.comics)) {
+    // History equality intentionally ignores mutable metadata such as cover
+    // and title. A new list from HistoryPage must still replace the tile
+    // objects so their image-provider keys use the refreshed cover URL.
+    if (!identical(oldWidget.comics, widget.comics) ||
+        !comics.isEqualTo(widget.comics)) {
       comics.clear();
       for (var comic in widget.comics) {
         if (isBlocked(comic) == null) {
