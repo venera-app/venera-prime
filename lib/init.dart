@@ -37,15 +37,15 @@ extension _FutureInit<T> on Future<T> {
 Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
-  // Load only local state required to render the first frame. Network-backed
-  // services and comic source parsing continue after runApp.
   try {
     var futures = [
-      // Settings are needed by MyApp; large history/favorites/local stores
-      // are initialized after the first frame.
-      appdata.init(),
+      Rhttp.init(),
+      App.initComponents(),
+      SAFTaskWorker().init().wait(),
       AppTranslation.init().wait(),
       TagsTranslation.readData().wait(),
+      JsEngine().init().wait(),
+      ComicSourceManager().init().wait(),
       OpenCC.init(),
     ];
     await Future.wait(futures);
@@ -53,28 +53,7 @@ Future<void> init() async {
     Log.error("init", "$e\n$s");
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
-  unawaited(_initBackground());
-  _installRuntimeHandlers();
-}
-
-Future<void> _initBackground() async {
-  try {
-    // Give the first frame and initial navigation a quiet window. QuickJS
-    // source parsing performs synchronous work on the UI isolate.
-    await Future<void>.delayed(const Duration(seconds: 2));
-    await Future.wait([
-      Rhttp.init(),
-      SAFTaskWorker().init().wait(),
-      JsEngine().init().wait(),
-      App.history.init(),
-      App.favorites.init(),
-      App.local.init(),
-    ]);
-    await ComicSourceManager().init().wait();
-    _checkOldConfigs();
-  } catch (e, s) {
-    Log.error("background init", "$e\n$s");
-  }
+  _checkOldConfigs();
   if (App.isAndroid) {
     handleLinks();
     handleTextShare();
@@ -84,9 +63,6 @@ Future<void> _initBackground() async {
       Log.error("Display Mode", "Failed to set high refresh rate: $e");
     }
   }
-}
-
-void _installRuntimeHandlers() {
   FlutterError.onError = (details) {
     Log.error("Unhandled Exception", "${details.exception}\n${details.stack}");
   };
