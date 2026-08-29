@@ -84,8 +84,9 @@ class Appdata with Init {
   }
 
   bool isSyncFieldDisabled(String field) {
-    return splitField(settings["disableSyncFields"]?.toString() ?? '')
-        .contains(field);
+    return splitField(
+      settings["disableSyncFields"]?.toString() ?? '',
+    ).contains(field);
   }
 
   void setSyncFieldDisabled(String field, bool disabled) {
@@ -238,12 +239,15 @@ class Appdata with Init {
     }
     try {
       var json = jsonDecode(await file.readAsString());
-      for (var key in (json['settings'] as Map<String, dynamic>).keys) {
-        if (json['settings'][key] != null) {
-          settings[key] = json['settings'][key];
+      final rawSettings = json is Map ? json['settings'] : null;
+      if (rawSettings is Map) {
+        for (var entry in rawSettings.entries) {
+          if (entry.key is String && entry.value != null) {
+            settings[entry.key as String] = entry.value;
+          }
         }
       }
-      final loadedHistory = json['searchHistory'];
+      final loadedHistory = json is Map ? json['searchHistory'] : null;
       if (loadedHistory is List) {
         searchHistory = loadedHistory.whereType<String>().toList();
       }
@@ -259,13 +263,21 @@ class Appdata with Init {
     try {
       var implicitDataFile = File(FilePath.join(dataPath, 'implicitData.json'));
       if (await implicitDataFile.exists()) {
-        implicitData = jsonDecode(await implicitDataFile.readAsString());
+        final decoded = jsonDecode(await implicitDataFile.readAsString());
+        if (decoded is Map) {
+          implicitData = decoded.map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+        } else {
+          throw const FormatException('implicit data must be an object');
+        }
       }
     } catch (e) {
       Log.error("Appdata", "Failed to load implicit data", e);
       Log.info("Appdata", "Resetting implicit data");
       var implicitDataFile = File(FilePath.join(dataPath, 'implicitData.json'));
       implicitDataFile.deleteIgnoreError();
+      implicitData = <String, dynamic>{};
     }
   }
 }
