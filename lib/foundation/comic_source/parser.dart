@@ -51,6 +51,8 @@ class ComicSourceParseException implements Exception {
 }
 
 class ComicSourceParser {
+  static int _initSequence = 0;
+
   /// comic source key
   String? _key;
 
@@ -170,7 +172,10 @@ class ComicSourceParser {
     await source.loadData();
 
     if (_checkExists("init")) {
-      Future.delayed(const Duration(milliseconds: 50), () {
+      final initDelay = Duration(
+        milliseconds: (100 + (_initSequence++ * 150).clamp(0, 5000)).toInt(),
+      );
+      Future.delayed(initDelay, () {
         // Keep one source's optional startup hook from becoming an unhandled
         // promise rejection that affects the rest of the source registry.
         JsEngine().runCode("""
