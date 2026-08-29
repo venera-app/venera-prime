@@ -33,7 +33,8 @@ wait_for() {
   return 1
 }
 wait_for_result() {
-  local timeout="${1:-30}" deadline=$((SECONDS + timeout))
+  local timeout="${1:-30}" deadline
+  deadline=$((SECONDS + timeout))
   while ((SECONDS < deadline)); do
     dump
     if has 'No Search Sources' || has '请添加一些源' || has '错误' ||
