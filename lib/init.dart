@@ -57,6 +57,9 @@ Future<void> init() async {
 
 Future<void> _initBackground() async {
   try {
+    // Give the first frame and initial navigation a quiet window. QuickJS
+    // source parsing performs synchronous work on the UI isolate.
+    await Future<void>.delayed(const Duration(seconds: 2));
     await Future.wait([
       Rhttp.init(),
       SAFTaskWorker().init().wait(),
