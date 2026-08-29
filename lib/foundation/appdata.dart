@@ -30,7 +30,8 @@ class Appdata with Init {
       var file = File(FilePath.join(App.dataPath, 'appdata.json'));
       futures.add(file.writeAsString(data));
 
-      var disableSyncFields = json["settings"]["disableSyncFields"] as String;
+      var disableSyncFields =
+          json["settings"]["disableSyncFields"]?.toString() ?? '';
       if (disableSyncFields.isNotEmpty) {
         var json4sync = jsonDecode(data);
         List<String> customDisableSync = splitField(disableSyncFields);
@@ -83,11 +84,12 @@ class Appdata with Init {
   }
 
   bool isSyncFieldDisabled(String field) {
-    return splitField(settings["disableSyncFields"] as String).contains(field);
+    return splitField(settings["disableSyncFields"]?.toString() ?? '')
+        .contains(field);
   }
 
   void setSyncFieldDisabled(String field, bool disabled) {
-    var fields = splitField(settings["disableSyncFields"] as String);
+    var fields = splitField(settings["disableSyncFields"]?.toString() ?? '');
     if (disabled) {
       if (!fields.contains(field)) {
         fields.add(field);
@@ -183,7 +185,7 @@ class Appdata with Init {
       var settings = Map<String, dynamic>.from(data['settings']);
 
       List<String> customDisableSync = splitField(
-        this.settings["disableSyncFields"] as String,
+        this.settings["disableSyncFields"]?.toString() ?? '',
       );
       _removeSyncDisabledFields(settings, customDisableSync);
 
@@ -241,13 +243,16 @@ class Appdata with Init {
           settings[key] = json['settings'][key];
         }
       }
-      searchHistory = List.from(json['searchHistory']);
+      final loadedHistory = json['searchHistory'];
+      if (loadedHistory is List) {
+        searchHistory = loadedHistory.whereType<String>().toList();
+      }
     } catch (e) {
       Log.error("Appdata", "Failed to load appdata", e);
       Log.info("Appdata", "Resetting appdata");
       file.deleteIgnoreError();
     }
-    if ((settings["deviceId"] as String).isEmpty) {
+    if (settings["deviceId"]?.toString().isEmpty ?? true) {
       settings._data["deviceId"] = const Uuid().v4();
       await saveData(false);
     }
