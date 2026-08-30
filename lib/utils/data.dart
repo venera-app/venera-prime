@@ -25,18 +25,39 @@ Future<File> exportAppData([bool sync = true]) async {
   }
   await Isolate.run(() {
     var zipFile = ZipFile.open(cacheFilePath);
+    Uint8List readStableFile(String path) {
+      Object? lastError;
+      for (var attempt = 0; attempt < 5; attempt++) {
+        try {
+          return File(path).readAsBytesSync();
+        } catch (error) {
+          lastError = error;
+          sleep(const Duration(milliseconds: 20));
+        }
+      }
+      throw lastError ?? StateError('Unable to read $path');
+    }
+
+    void addStableFile(String name, String path) {
+      zipFile.addFileFromBytes(name, readStableFile(path));
+    }
+
     var historyFile = FilePath.join(dataPath, "history.db");
     var localFavoriteFile = FilePath.join(dataPath, "local_favorite.db");
     var appdata = FilePath.join(dataPath, sync ? "syncdata.json" : "appdata.json");
     var cookies = FilePath.join(dataPath, "cookie.db");
-    zipFile.addFile("history.db", historyFile);
-    zipFile.addFile("local_favorite.db", localFavoriteFile);
-    zipFile.addFile("appdata.json", appdata);
-    zipFile.addFile("cookie.db", cookies);
+    addStableFile("history.db", historyFile);
+    addStableFile("local_favorite.db", localFavoriteFile);
+    addStableFile("appdata.json", appdata);
+    addStableFile("cookie.db", cookies);
     for (var file
         in Directory(FilePath.join(dataPath, "comic_source")).listSync()) {
       if (file is File) {
-        zipFile.addFile("comic_source/${file.name}", file.path);
+        final name = file.name;
+        if (name.endsWith('.tmp') || name.endsWith('.bak')) {
+          continue;
+        }
+        addStableFile("comic_source/$name", file.path);
       }
     }
     zipFile.close();
