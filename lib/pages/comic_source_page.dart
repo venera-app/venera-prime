@@ -45,8 +45,30 @@ class ComicSourcePage extends StatelessWidget {
         "ComicSource",
         "Update start: ${source.key} v${source.version} ${source.url}",
       );
+      // jsDelivr aggressively caches @main files. A cache-busting query is
+      // required here because the source URL itself intentionally stays
+      // stable for future updates.
+      var sourceUrl = Uri.parse(source.url)
+          .replace(
+            queryParameters: {
+              ...Uri.parse(source.url).queryParameters,
+              "venera_update": DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          )
+          .toString();
+      // jsDelivr may serve a stale @main snapshot even with query params.
+      // GitHub Raw reflects the current branch immediately.
+      if (sourceUrl.startsWith("https://cdn.jsdelivr.net/gh/")) {
+        sourceUrl = sourceUrl
+            .replaceFirst(
+              "https://cdn.jsdelivr.net/gh/",
+              "https://raw.githubusercontent.com/",
+            )
+            .replaceFirst("@", "/");
+      }
+      Log.info("ComicSource", "Fetching source content: $sourceUrl");
       var res = await AppDio().get<String>(
-        source.url,
+        sourceUrl,
         options: Options(
           responseType: ResponseType.plain,
           headers: {"cache-time": "no"},
