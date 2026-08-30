@@ -41,6 +41,10 @@ class ComicSourcePage extends StatelessWidget {
       );
     }
     try {
+      Log.info(
+        "ComicSource",
+        "Update start: ${source.key} v${source.version} ${source.url}",
+      );
       var res = await AppDio().get<String>(
         source.url,
         options: Options(
@@ -48,14 +52,22 @@ class ComicSourcePage extends StatelessWidget {
           headers: {"cache-time": "no"},
         ),
       );
+      Log.info(
+        "ComicSource",
+        "Downloaded ${source.key}: status=${res.statusCode}, bytes=${res.data?.length ?? 0}",
+      );
       if (cancel) return;
       controller?.close();
       ComicSourceManager().remove(source.key);
       removed = true;
+      Log.info("ComicSource", "Parsing ${source.key}");
       await ComicSourceParser().parse(res.data!, source.filePath);
+      Log.info("ComicSource", "Writing ${source.key}: ${source.filePath}");
       await io.File(source.filePath).writeAsString(res.data!);
       ComicSourceManager().removeAvailableUpdate(source.key);
+      Log.info("ComicSource", "Update success: ${source.key}");
     } catch (e) {
+      Log.error("ComicSource", "Update failed: ${source.key}\n$e");
       if (cancel) return;
       if (showLoading) {
         App.rootContext.showMessage(message: e.toString());
@@ -65,7 +77,12 @@ class ComicSourcePage extends StatelessWidget {
     } finally {
       controller?.close();
       if (removed) {
+        Log.info(
+          "ComicSource",
+          "Reloading source registry after ${source.key}",
+        );
         await ComicSourceManager().reload();
+        Log.info("ComicSource", "Reload complete after ${source.key}");
       }
     }
     if (showLoading) {
@@ -78,7 +95,12 @@ class ComicSourcePage extends StatelessWidget {
       return 0;
     }
     var dio = AppDio();
-    var res = await dio.get<String>(appdata.settings['comicSourceListUrl']);
+    final listUrl = appdata.settings['comicSourceListUrl'];
+    Log.info("ComicSource", "Checking source list: $listUrl");
+    var res = await dio.get<String>(
+      listUrl,
+      options: Options(headers: {"cache-time": "no"}),
+    );
     if (res.statusCode != 200) {
       return -1;
     }
@@ -99,6 +121,10 @@ class ComicSourcePage extends StatelessWidget {
       updates[key] = versions[key]!;
     }
     ComicSourceManager().setAvailableUpdates(updates);
+    Log.info(
+      "ComicSource",
+      "Source check complete: ${shouldUpdate.length} updates",
+    );
     return shouldUpdate.length;
   }
 
@@ -651,17 +677,25 @@ class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
     setState(() {
       isLoading = true;
     });
-    var count = await ComicSourcePage.checkComicSourceUpdate();
-    if (count == -1) {
-      context.showMessage(message: "Network error".tl);
-    } else if (count == 0) {
-      context.showMessage(message: "No updates".tl);
-    } else {
-      showUpdateDialog();
+    try {
+      var count = await ComicSourcePage.checkComicSourceUpdate();
+      if (count == -1) {
+        context.showMessage(message: "Network error".tl);
+      } else if (count == 0) {
+        context.showMessage(message: "No updates".tl);
+      } else {
+        showUpdateDialog();
+      }
+    } catch (e) {
+      Log.error("ComicSource", "Source check failed\n$e");
+      context.showMessage(message: e.toString());
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
-    setState(() {
-      isLoading = false;
-    });
   }
 
   void showUpdateDialog() async {
