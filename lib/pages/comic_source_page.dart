@@ -30,8 +30,8 @@ class ComicSourcePage extends StatelessWidget {
         throw Exception("Invalid url config");
       }
     }
-    ComicSourceManager().remove(source.key);
     bool cancel = false;
+    bool removed = false;
     LoadingDialogController? controller;
     if (showLoading) {
       controller = showLoadingDialog(
@@ -50,11 +50,11 @@ class ComicSourcePage extends StatelessWidget {
       );
       if (cancel) return;
       controller?.close();
+      ComicSourceManager().remove(source.key);
+      removed = true;
       await ComicSourceParser().parse(res.data!, source.filePath);
       await io.File(source.filePath).writeAsString(res.data!);
-      if (ComicSourceManager().availableUpdates.containsKey(source.key)) {
-        ComicSourceManager().availableUpdates.remove(source.key);
-      }
+      ComicSourceManager().removeAvailableUpdate(source.key);
     } catch (e) {
       if (cancel) return;
       if (showLoading) {
@@ -62,8 +62,12 @@ class ComicSourcePage extends StatelessWidget {
       } else {
         rethrow;
       }
+    } finally {
+      controller?.close();
+      if (removed) {
+        await ComicSourceManager().reload();
+      }
     }
-    await ComicSourceManager().reload();
     if (showLoading) {
       App.forceRebuild();
     }
@@ -90,13 +94,11 @@ class ComicSourcePage extends StatelessWidget {
         shouldUpdate.add(source.key);
       }
     }
-    if (shouldUpdate.isNotEmpty) {
-      var updates = <String, String>{};
-      for (var key in shouldUpdate) {
-        updates[key] = versions[key]!;
-      }
-      ComicSourceManager().updateAvailableUpdates(updates);
+    var updates = <String, String>{};
+    for (var key in shouldUpdate) {
+      updates[key] = versions[key]!;
     }
+    ComicSourceManager().setAvailableUpdates(updates);
     return shouldUpdate.length;
   }
 
@@ -695,18 +697,30 @@ class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
       );
       int current = 0;
       int total = ComicSourceManager().availableUpdates.length;
+      var failures = <String>[];
       try {
         var shouldUpdate = ComicSourceManager().availableUpdates.keys.toList();
         for (var key in shouldUpdate) {
-          var source = ComicSource.find(key)!;
-          await ComicSourcePage.update(source, false);
+          var source = ComicSource.find(key);
+          if (source == null) {
+            failures.add('$key: source is no longer available');
+          } else {
+            try {
+              await ComicSourcePage.update(source, false);
+            } catch (e) {
+              failures.add('$key: $e');
+            }
+          }
           current++;
           loadingController.setProgress(current / total);
         }
-      } catch (e) {
-        context.showMessage(message: e.toString());
+      } finally {
+        loadingController.close();
+        App.forceRebuild();
       }
-      loadingController.close();
+      if (failures.isNotEmpty) {
+        context.showMessage(message: failures.join('\n'));
+      }
     }
   }
 
