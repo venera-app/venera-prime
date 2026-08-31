@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
 
 import 'package:flutter/widgets.dart' show ChangeNotifier;
-import 'package:flutter_saf/flutter_saf.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -11,11 +9,12 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
+import 'package:venera/network/app_dio.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
 import 'package:venera/utils/io.dart';
-import 'package:zip_flutter/zip_flutter.dart';
+import 'package:venera/utils/archive_security.dart';
 
 import 'file_downloader.dart';
 
@@ -58,9 +57,24 @@ abstract class DownloadTask with ChangeNotifier {
     switch (json["type"]) {
       case "ImagesDownloadTask":
         return ImagesDownloadTask.fromJson(json);
+      case "ArchiveDownloadTask":
+        return ArchiveDownloadTask.fromJson(json);
       default:
         return null;
     }
+  }
+
+  static String? restoreManagedPath(Object? value) {
+    if (value == null) return null;
+    if (value is! String ||
+        value.isEmpty ||
+        value.length > 4096 ||
+        !LocalManager().isManagedPath(value)) {
+      throw const FormatException(
+        'Download task path is outside local storage',
+      );
+    }
+    return value;
   }
 
   @override
@@ -97,6 +111,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   String? comicTitle;
 
+  bool _createdDownloadDirectory = false;
+
   ImagesDownloadTask({
     required this.source,
     required this.comicId,
@@ -118,13 +134,15 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         if (downloadPath == null) {
           return;
         }
-        if (local == null) {
+        if (local == null &&
+            _createdDownloadDirectory &&
+            LocalManager().isManagedPath(downloadPath)) {
           try {
             await Directory(downloadPath).delete(recursive: true);
           } catch (e, s) {
             Log.error("Download", "Failed to delete directory: $e", s);
           }
-        } else if (chapters != null) {
+        } else if (local != null && local.managedByApp && chapters != null) {
           for (var c in chapters!) {
             var dir = Directory(
               FilePath.join(
@@ -133,7 +151,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
               ),
             );
             try {
-              if (await dir.exists()) {
+              if (await dir.exists() &&
+                  LocalManager().isManagedPath(dir.path)) {
                 await dir.delete(recursive: true);
               }
             } catch (e, s) {
@@ -608,15 +627,22 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
               comicType,
               comic!.title,
             );
-        if (!(await dir.exists())) {
+        final existed = await dir.exists();
+        if (!existed) {
           await dir.create();
         }
         path = dir.path;
+        _createdDownloadDirectory = !existed;
       } catch (e, s) {
         Log.error("Download", e.toString(), s);
         _setError("Error: $e");
         return;
       }
+    }
+
+    if (path == null || !LocalManager().isManagedPath(path!)) {
+      _setError("Error: Download path is outside local storage");
+      return;
     }
 
     await _writeDownloadInfo();
@@ -830,15 +856,17 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       }
     }
 
+    final source = ComicSource.find(json["source"]);
+    if (source == null) return null;
     return ImagesDownloadTask(
-        source: ComicSource.find(json["source"])!,
+        source: source,
         comicId: json["comicId"],
         comic: json["comic"] == null
             ? null
             : ComicDetails.fromJson(json["comic"]),
         chapters: ListOrNull.from(json["chapters"]),
       )
-      ..path = json["path"]
+      ..path = DownloadTask.restoreManagedPath(json["path"])
       .._cover = json["cover"]
       .._images = images
       .._downloadedCount = json["downloadedCount"]
@@ -1088,6 +1116,23 @@ class ArchiveDownloadTask extends DownloadTask {
   }
 
   FileDownloader? _downloader;
+  Future<void>? _extracting;
+
+  bool _createdDownloadDirectory = false;
+
+  String get _taskKey {
+    var hash = 0x811c9dc5;
+    for (final codeUnit in '$id:${comicType.value}:$archiveUrl'.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash.toRadixString(16);
+  }
+
+  File get _archiveFile =>
+      File(FilePath.join(App.dataPath, 'archive_downloading_$_taskKey.zip'));
+
+  File get _archiveStatusFile => File('${_archiveFile.path}.download');
 
   String _message = "Fetching comic info...";
 
@@ -1103,18 +1148,36 @@ class ArchiveDownloadTask extends DownloadTask {
     Log.error("Download", message);
   }
 
+  Future<void> _cleanupCreatedDirectory() async {
+    final downloadPath = path;
+    if (!_createdDownloadDirectory || downloadPath == null) return;
+    if (LocalManager().isManagedPath(downloadPath)) {
+      await Directory(downloadPath).deleteIgnoreError(recursive: true);
+    }
+    path = null;
+    _createdDownloadDirectory = false;
+  }
+
   @override
   void cancel() async {
     _isRunning = false;
     await _downloader?.stop();
-    if (path != null) {
+    try {
+      await _extracting;
+    } catch (_) {
+      // The extraction task reports its own error; cancellation still owns
+      // the cleanup that follows.
+    }
+    if (_createdDownloadDirectory &&
+        path != null &&
+        LocalManager().isManagedPath(path!)) {
       await Directory(path!).deleteIgnoreError(recursive: true);
     }
-    var archiveFile = File(
-      FilePath.join(App.dataPath, "archive_downloading.zip"),
-    );
-    await archiveFile.deleteIgnoreError();
-    await File("${archiveFile.path}.download").deleteIgnoreError();
+    await _archiveFile.deleteIgnoreError();
+    await _archiveStatusFile.deleteIgnoreError();
+    await Directory(
+      FilePath.join(App.cachePath, 'archive_staging_$_taskKey'),
+    ).deleteIgnoreError(recursive: true);
     path = null;
     LocalManager().removeTask(this);
   }
@@ -1171,7 +1234,8 @@ class ArchiveDownloadTask extends DownloadTask {
         comicType,
         comic.title,
       );
-      if (!(await dir.exists())) {
+      final existed = await dir.exists();
+      if (!existed) {
         try {
           await dir.create();
         } catch (e) {
@@ -1180,13 +1244,17 @@ class ArchiveDownloadTask extends DownloadTask {
         }
       }
       path = dir.path;
+      _createdDownloadDirectory = !existed;
     }
 
-    var archiveFile = File(
-      FilePath.join(App.dataPath, "archive_downloading.zip"),
-    );
+    if (path == null || !LocalManager().isManagedPath(path!)) {
+      _setError("Error: Download path is outside local storage");
+      return;
+    }
 
-    Log.info("Download", "Downloading $archiveUrl");
+    final archiveFile = _archiveFile;
+
+    Log.info("Download", "Downloading ${MyLogInterceptor.safeUrl(archiveUrl)}");
 
     _downloader = FileDownloader(archiveUrl, archiveFile.path);
 
@@ -1203,6 +1271,7 @@ class ArchiveDownloadTask extends DownloadTask {
         notifyListeners();
       }
     } catch (e) {
+      await _cleanupCreatedDirectory();
       _setError("Error: $e");
       return;
     }
@@ -1212,37 +1281,47 @@ class ArchiveDownloadTask extends DownloadTask {
     }
 
     if (!isDownloaded) {
+      await _cleanupCreatedDirectory();
       _setError("Error: Download failed");
       return;
     }
 
     try {
-      await _extractArchive(archiveFile.path, path!);
+      final extracting = _extractArchive(archiveFile.path, path!, _taskKey);
+      _extracting = extracting;
+      await extracting;
     } catch (e) {
+      await _cleanupCreatedDirectory();
       _setError("Failed to extract archive: $e");
       return;
+    } finally {
+      _extracting = null;
     }
 
+    if (!_isRunning) return;
     await archiveFile.deleteIgnoreError();
 
     LocalManager().completeTask(this);
   }
 
-  static Future<void> _extractArchive(String archive, String outDir) async {
-    var out = Directory(outDir);
-    if (out is AndroidDirectory) {
-      // Saf directory can't be accessed by native code.
-      var cacheDir = FilePath.join(App.cachePath, "archive_downloading");
-      Directory(cacheDir).forceCreateSync();
-      await Isolate.run(() {
-        ZipFile.openAndExtract(archive, cacheDir);
-      });
-      await copyDirectoryIsolate(Directory(cacheDir), Directory(outDir));
-      await Directory(cacheDir).deleteIgnoreError(recursive: true);
-    } else {
-      await Isolate.run(() {
-        ZipFile.openAndExtract(archive, outDir);
-      });
+  static Future<void> _extractArchive(
+    String archive,
+    String outDir,
+    String taskKey,
+  ) async {
+    if (!LocalManager().isManagedPath(outDir)) {
+      throw const FileSystemException(
+        'Refusing to publish archive outside local storage',
+      );
+    }
+    final staging = Directory(
+      FilePath.join(App.cachePath, 'archive_staging_$taskKey'),
+    );
+    try {
+      await ArchiveSecurity.extract(File(archive), staging);
+      await copyDirectoryIsolate(staging, Directory(outDir));
+    } finally {
+      await staging.deleteIgnoreError(recursive: true);
     }
   }
 
@@ -1266,10 +1345,10 @@ class ArchiveDownloadTask extends DownloadTask {
     if (json["type"] != "ArchiveDownloadTask") {
       return null;
     }
-    return ArchiveDownloadTask(
-      json["archiveUrl"],
-      ComicDetails.fromJson(json["comic"]),
-    )..path = json["path"];
+    final comic = ComicDetails.fromJson(json["comic"]);
+    if (ComicSource.find(comic.sourceKey) == null) return null;
+    return ArchiveDownloadTask(json["archiveUrl"], comic)
+      ..path = DownloadTask.restoreManagedPath(json["path"]);
   }
 
   String _findCover() {

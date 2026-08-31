@@ -32,6 +32,10 @@ class _ChaptersViewState extends State<_ChaptersView> {
   @override
   Widget build(BuildContext context) {
     var chapters = widget.reader.widget.chapters!;
+    final visible = ChapterVisibility.flat(
+      chapters,
+      hideDuplicates: appdata.settings['hideDuplicateChapters'] == true,
+    );
     var current = widget.reader.chapter - 1;
     return Scaffold(
       body: SmoothCustomScrollView(
@@ -59,25 +63,24 @@ class _ChaptersViewState extends State<_ChaptersView> {
             ],
           ),
           SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                if (desc) {
-                  index = chapters.length - 1 - index;
-                }
-                var chapter = chapters.titles.elementAt(index);
-                return _ChapterListTile(
-                  onTap: () {
-                    widget.reader.toChapter(index + 1);
-                    Navigator.of(context).pop();
-                  },
-                  title: chapter.displayText,
-                  isActive: current == index,
-                  isDownloaded:
-                      downloaded.contains(chapters.ids.elementAt(index)),
-                );
-              },
-              childCount: chapters.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              if (desc) {
+                index = visible.length - 1 - index;
+              }
+              final rawIndex = visible[index];
+              var chapter = chapters.titles.elementAt(rawIndex);
+              return _ChapterListTile(
+                onTap: () {
+                  widget.reader.toChapter(rawIndex + 1);
+                  Navigator.of(context).pop();
+                },
+                title: chapter.displayText,
+                isActive: current == rawIndex,
+                isDownloaded: downloaded.contains(
+                  chapters.ids.elementAt(rawIndex),
+                ),
+              );
+            }, childCount: visible.length),
           ),
         ],
       ),
@@ -155,33 +158,38 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
 
   Widget buildGroup(String groupName) {
     var group = chapters.getGroup(groupName);
+    final groupIndex = chapters.groups.toList().indexOf(groupName);
+    final visible = ChapterVisibility.grouped(
+      chapters,
+      hideDuplicates: appdata.settings['hideDuplicateChapters'] == true,
+    )[groupIndex];
     return SmoothCustomScrollView(
       controller: initialGroupName == groupName ? _scrollController : null,
       slivers: [
         SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              var name = group.values.elementAt(index);
-              var i = 0;
-              for (var g in chapters.groups) {
-                if (g == groupName) {
-                  break;
-                }
-                i += chapters.getGroup(g).length;
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final rawLocalIndex = visible[index];
+            var name = group.values.elementAt(rawLocalIndex);
+            var i = 0;
+            for (var g in chapters.groups) {
+              if (g == groupName) {
+                break;
               }
-              i += index + 1;
-              return _ChapterListTile(
-                onTap: () {
-                  widget.reader.toChapter(i);
-                  context.pop();
-                },
-                title: name.displayText,
-                isActive: widget.reader.chapter == i,
-                isDownloaded: downloaded.contains(group.keys.elementAt(index)),
-              );
-            },
-            childCount: group.length,
-          ),
+              i += chapters.getGroup(g).length;
+            }
+            i += rawLocalIndex + 1;
+            return _ChapterListTile(
+              onTap: () {
+                widget.reader.toChapter(i);
+                context.pop();
+              },
+              title: name.displayText,
+              isActive: widget.reader.chapter == i,
+              isDownloaded: downloaded.contains(
+                group.keys.elementAt(rawLocalIndex),
+              ),
+            );
+          }, childCount: visible.length),
         ),
       ],
     );
@@ -214,8 +222,9 @@ class _ChapterListTile extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             left: BorderSide(
-              color:
-                  isActive ? context.colorScheme.primary : Colors.transparent,
+              color: isActive
+                  ? context.colorScheme.primary
+                  : Colors.transparent,
               width: 4,
             ),
           ),

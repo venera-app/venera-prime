@@ -13,37 +13,49 @@ import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/pages/webview.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/atomic_file.dart';
 import 'package:venera/utils/translations.dart';
 
 class ComicSourcePage extends StatelessWidget {
   const ComicSourcePage({super.key});
 
-  static Future<void> update(
+  static Future<bool> update(
     ComicSource source, [
     bool showLoading = true,
   ]) async {
+    final manager = ComicSourceManager();
+    if (!manager.tryStartUpdate(source.key)) {
+      Log.info("ComicSource", "Update already running: ${source.key}");
+      return false;
+    }
     if (!source.url.isURL) {
       if (showLoading) {
         App.rootContext.showMessage(message: "Invalid url config");
-        return;
+        manager.finishUpdate(source.key);
+        return false;
       } else {
+        manager.finishUpdate(source.key);
         throw Exception("Invalid url config");
       }
     }
     bool cancel = false;
-    bool removed = false;
+    ComicSourceParser? parser;
     LoadingDialogController? controller;
     if (showLoading) {
       controller = showLoadingDialog(
         App.rootContext,
-        onCancel: () => cancel = true,
+        onCancel: () {
+          cancel = true;
+          manager.cancelUpdate(source.key);
+        },
         barrierDismissible: false,
       );
     }
     try {
+      manager.setUpdateState(source.key, ComicSourceUpdateState.downloading);
       Log.info(
         "ComicSource",
-        "Update start: ${source.key} v${source.version} ${source.url}",
+        "Update start: ${source.key} v${source.version} ${MyLogInterceptor.safeUrl(source.url)}",
       );
       // jsDelivr aggressively caches @main files. A cache-busting query is
       // required here because the source URL itself intentionally stays
@@ -66,7 +78,10 @@ class ComicSourcePage extends StatelessWidget {
             )
             .replaceFirst("@", "/");
       }
-      Log.info("ComicSource", "Fetching source content: $sourceUrl");
+      Log.info(
+        "ComicSource",
+        "Fetching source content: ${MyLogInterceptor.safeUrl(sourceUrl)}",
+      );
       var res = await AppDio().get<String>(
         sourceUrl,
         options: Options(
@@ -78,19 +93,64 @@ class ComicSourcePage extends StatelessWidget {
         "ComicSource",
         "Downloaded ${source.key}: status=${res.statusCode}, bytes=${res.data?.length ?? 0}",
       );
-      if (cancel) return;
-      controller?.close();
-      ComicSourceManager().remove(source.key);
-      removed = true;
+      if (res.statusCode == null ||
+          res.statusCode! < 200 ||
+          res.statusCode! >= 300 ||
+          res.data == null ||
+          res.data!.trim().isEmpty) {
+        throw Exception('Source download failed with status ${res.statusCode}');
+      }
+      if (cancel || manager.isUpdateCancelled(source.key)) {
+        manager.setUpdateState(source.key, ComicSourceUpdateState.canceled);
+        return false;
+      }
+      final target = io.File(source.filePath);
+      final temp = io.File('${target.path}.update.tmp');
+      final backup = io.File('${target.path}.update.bak');
       Log.info("ComicSource", "Parsing ${source.key}");
-      await ComicSourceParser().parse(res.data!, source.filePath);
+      manager.setUpdateState(source.key, ComicSourceUpdateState.parsing);
+      final currentParser = ComicSourceParser();
+      parser = currentParser;
+      final candidate = await currentParser.parse(
+        res.data!,
+        source.filePath,
+        allowExistingKey: true,
+        registerSource: false,
+      );
+      if (cancel || manager.isUpdateCancelled(source.key)) {
+        manager.setUpdateState(source.key, ComicSourceUpdateState.canceled);
+        return false;
+      }
+      if (candidate.key != source.key) {
+        throw ComicSourceParseException(
+          'Source key changed from ${source.key} to ${candidate.key}',
+        );
+      }
       Log.info("ComicSource", "Writing ${source.key}: ${source.filePath}");
-      await io.File(source.filePath).writeAsString(res.data!);
-      ComicSourceManager().removeAvailableUpdate(source.key);
+      manager.setUpdateState(source.key, ComicSourceUpdateState.writing);
+      await temp.writeAsString(res.data!, flush: true);
+      if (cancel || manager.isUpdateCancelled(source.key)) {
+        manager.setUpdateState(source.key, ComicSourceUpdateState.canceled);
+        return false;
+      }
+      await atomicReplaceWithBackup(
+        target: target,
+        temporary: temp,
+        backup: backup,
+      );
+      currentParser.registerParsedSource();
+      manager.replace(candidate);
+      manager.removeAvailableUpdate(source.key);
+      manager.setUpdateState(source.key, ComicSourceUpdateState.success);
       Log.info("ComicSource", "Update success: ${source.key}");
+      return true;
     } catch (e) {
       Log.error("ComicSource", "Update failed: ${source.key}\n$e");
-      if (cancel) return;
+      if (cancel || manager.isUpdateCancelled(source.key)) {
+        manager.setUpdateState(source.key, ComicSourceUpdateState.canceled);
+        return false;
+      }
+      manager.setUpdateState(source.key, ComicSourceUpdateState.failed);
       if (showLoading) {
         App.rootContext.showMessage(message: e.toString());
       } else {
@@ -98,18 +158,14 @@ class ComicSourcePage extends StatelessWidget {
       }
     } finally {
       controller?.close();
-      if (removed) {
-        Log.info(
-          "ComicSource",
-          "Reloading source registry after ${source.key}",
-        );
-        await ComicSourceManager().reload();
-        Log.info("ComicSource", "Reload complete after ${source.key}");
-      }
+      parser?.discardParsedSource();
+      await io.File('${source.filePath}.update.tmp').deleteIgnoreError();
+      manager.finishUpdate(source.key);
     }
     if (showLoading) {
       App.forceRebuild();
     }
+    return false;
   }
 
   static Future<int> checkComicSourceUpdate() async {
@@ -118,7 +174,10 @@ class ComicSourcePage extends StatelessWidget {
     }
     var dio = AppDio();
     final listUrl = appdata.settings['comicSourceListUrl'];
-    Log.info("ComicSource", "Checking source list: $listUrl");
+    Log.info(
+      "ComicSource",
+      "Checking source list: ${MyLogInterceptor.safeUrl(listUrl.toString())}",
+    );
     var res = await dio.get<String>(
       listUrl,
       options: Options(headers: {"cache-time": "no"}),
@@ -186,7 +245,26 @@ class _BodyState extends State<_Body> {
   Widget build(BuildContext context) {
     return SmoothCustomScrollView(
       slivers: [
-        SliverAppbar(title: Text('Comic Source'.tl), style: AppbarStyle.shadow),
+        SliverAppbar(
+          title: Text('Comic Source'.tl),
+          style: AppbarStyle.shadow,
+          actions: [
+            Tooltip(
+              message: 'Reorder'.tl,
+              child: IconButton(
+                icon: const Icon(Icons.reorder),
+                onPressed: () => _showReorderDialog(context),
+              ),
+            ),
+            Tooltip(
+              message: 'Sort by name'.tl,
+              child: IconButton(
+                icon: const Icon(Icons.sort_by_alpha),
+                onPressed: () => ComicSourceManager().sortByName(),
+              ),
+            ),
+          ],
+        ),
         buildCard(context),
         for (var source in ComicSource.all())
           _SliverComicSource(
@@ -198,6 +276,53 @@ class _BodyState extends State<_Body> {
           ),
         SliverPadding(padding: EdgeInsets.only(bottom: context.padding.bottom)),
       ],
+    );
+  }
+
+  void _showReorderDialog(BuildContext context) {
+    var keys = ComicSourceManager().all().map((source) => source.key).toList();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Reorder comic sources'.tl),
+          content: SizedBox(
+            width: 420,
+            height: 420,
+            child: ReorderableListView.builder(
+              itemCount: keys.length,
+              onReorder: (oldIndex, newIndex) {
+                if (newIndex > oldIndex) newIndex--;
+                setState(() {
+                  final key = keys.removeAt(oldIndex);
+                  keys.insert(newIndex, key);
+                });
+              },
+              itemBuilder: (context, index) {
+                final source = ComicSource.find(keys[index]);
+                return ListTile(
+                  key: ValueKey(keys[index]),
+                  leading: const Icon(Icons.drag_handle),
+                  title: Text(source?.name ?? keys[index]),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel'.tl),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await ComicSourceManager().setOrder(keys);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: Text('Confirm'.tl),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -746,32 +871,64 @@ class _CheckUpdatesButtonState extends State<_CheckUpdatesButton> {
       },
     );
     if (doUpdate) {
+      bool canceled = false;
+      String? activeKey;
       var loadingController = showLoadingDialog(
         context,
         message: "Updating".tl,
         withProgress: true,
+        onCancel: () {
+          canceled = true;
+          final key = activeKey;
+          if (key != null) {
+            ComicSourceManager().cancelUpdate(key);
+          }
+        },
       );
       int current = 0;
       int total = ComicSourceManager().availableUpdates.length;
       var failures = <String>[];
+      int successCount = 0;
       try {
         var shouldUpdate = ComicSourceManager().availableUpdates.keys.toList();
         for (var key in shouldUpdate) {
+          if (canceled) break;
+          activeKey = key;
           var source = ComicSource.find(key);
           if (source == null) {
             failures.add('$key: source is no longer available');
+            ComicSourceManager().clearUpdateState(key);
           } else {
             try {
-              await ComicSourcePage.update(source, false);
+              if (await ComicSourcePage.update(source, false)) {
+                successCount++;
+              }
             } catch (e) {
               failures.add('$key: $e');
             }
           }
+          activeKey = null;
           current++;
           loadingController.setProgress(current / total);
         }
       } finally {
         loadingController.close();
+        final history = appdata.implicitData['comicSourceUpdateHistory'] is List
+            ? List<dynamic>.from(
+                appdata.implicitData['comicSourceUpdateHistory'],
+              )
+            : <dynamic>[];
+        history.insert(0, {
+          'time': DateTime.now().millisecondsSinceEpoch,
+          'total': total,
+          'success': successCount,
+          'failed': failures.length,
+          'canceled': canceled,
+          'errors': failures,
+        });
+        if (history.length > 20) history.removeRange(20, history.length);
+        appdata.implicitData['comicSourceUpdateHistory'] = history;
+        appdata.writeImplicitData();
         App.forceRebuild();
       }
       if (failures.isNotEmpty) {
@@ -873,6 +1030,17 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
     var newVersion = ComicSourceManager().availableUpdates[source.key];
     bool hasUpdate =
         newVersion != null && compareSemVer(newVersion, source.version);
+    final updateState = ComicSourceManager().updateStates[source.key];
+    final stateLabel = switch (updateState) {
+      ComicSourceUpdateState.downloading => 'Downloading'.tl,
+      ComicSourceUpdateState.parsing => 'Parsing'.tl,
+      ComicSourceUpdateState.writing => 'Writing'.tl,
+      ComicSourceUpdateState.success => 'Updated'.tl,
+      ComicSourceUpdateState.failed => 'Update failed'.tl,
+      ComicSourceUpdateState.canceled => 'Canceled'.tl,
+      ComicSourceUpdateState.waiting => 'Waiting'.tl,
+      null => null,
+    };
 
     return SliverMainAxisGroup(
       slivers: [
@@ -926,6 +1094,16 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
                             "New Version".tl,
                             style: const TextStyle(fontSize: 13),
                           ),
+                        ),
+                      ),
+                    if (stateLabel != null)
+                      Text(
+                        stateLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: updateState == ComicSourceUpdateState.failed
+                              ? context.colorScheme.error
+                              : context.colorScheme.primary,
                         ),
                       ),
                   ],

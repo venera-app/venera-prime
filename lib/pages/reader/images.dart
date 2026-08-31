@@ -317,7 +317,13 @@ class _GalleryModeState extends State<_GalleryMode>
         }
       },
       child: PhotoViewGallery.builder(
-        backgroundDecoration: BoxDecoration(color: context.colorScheme.surface),
+        backgroundDecoration: BoxDecoration(
+          color: readerBackgroundColor(
+            context,
+            reader.cid,
+            reader.type.sourceKey,
+          ),
+        ),
         reverse: reader.mode == ReaderMode.galleryRightToLeft,
         scrollDirection: reader.mode == ReaderMode.galleryTopToBottom
             ? Axis.vertical
@@ -377,14 +383,22 @@ class _GalleryModeState extends State<_GalleryMode>
             minScale: PhotoViewComputedScale.contained * 1.0,
             maxScale: PhotoViewComputedScale.covered * 10.0,
             backgroundDecoration: BoxDecoration(
-              color: context.colorScheme.surface,
+              color: readerBackgroundColor(
+                context,
+                reader.cid,
+                reader.type.sourceKey,
+              ),
             ),
             child: Center(
               child: SizedBox(
                 width: 20.0,
                 height: 20.0,
                 child: CircularProgressIndicator(
-                  backgroundColor: context.colorScheme.surfaceContainerHigh,
+                  backgroundColor: readerBackgroundColor(
+                    context,
+                    reader.cid,
+                    reader.type.sourceKey,
+                  ),
                   value: event == null || event.expectedTotalBytes == null
                       ? null
                       : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
@@ -897,7 +911,11 @@ class _ContinuousModeState extends State<_ContinuousMode>
         ImageProvider image = _createImageProvider(index, context);
 
         return ColoredBox(
-          color: context.colorScheme.surface,
+          color: readerBackgroundColor(
+            context,
+            reader.cid,
+            reader.type.sourceKey,
+          ),
           child: ComicImage(
             filterQuality: FilterQuality.medium,
             image: image,
@@ -913,6 +931,11 @@ class _ContinuousModeState extends State<_ContinuousMode>
         scrollbars: false,
         dragDevices: _kTouchLikeDeviceTypes,
       ),
+    );
+
+    widget = ColoredBox(
+      color: readerBackgroundColor(context, reader.cid, reader.type.sourceKey),
+      child: widget,
     );
 
     widget = Stack(
@@ -1056,7 +1079,13 @@ class _ContinuousModeState extends State<_ContinuousMode>
     }
 
     return PhotoView.customChild(
-      backgroundDecoration: BoxDecoration(color: context.colorScheme.surface),
+      backgroundDecoration: BoxDecoration(
+        color: readerBackgroundColor(
+          context,
+          reader.cid,
+          reader.type.sourceKey,
+        ),
+      ),
       childSize: Size(width, height),
       minScale: 1.0,
       maxScale: 2.5,

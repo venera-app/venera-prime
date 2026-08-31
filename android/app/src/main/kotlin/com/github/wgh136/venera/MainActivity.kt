@@ -30,6 +30,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : FlutterFragmentActivity() {
@@ -129,10 +130,11 @@ class MainActivity : FlutterFragmentActivity() {
                             return@startContractForResult
                         }
                         val pickedDirectoryUri = activityResult.data?.data
-                        if (pickedDirectoryUri == null)
+                        if (pickedDirectoryUri == null) {
                             res.success(null)
-                        else
-                            onPickedDirectory(pickedDirectoryUri, res)
+                            return@startContractForResult
+                        }
+                        onPickedDirectory(pickedDirectoryUri, res)
                     }
                 }
 
@@ -230,43 +232,64 @@ class MainActivity : FlutterFragmentActivity() {
             if(plain.startsWith(externalStoragePrefix)) {
                 val path = plain.substring(externalStoragePrefix.length)
                 result.success(Environment.getExternalStorageDirectory().absolutePath + "/" + path)
+                return
             }
             // The uri cannot be parsed to plain path, use copy method
         }
         // dart:io cannot access the directory without permission.
         // so we need to copy the directory to cache directory
         val contentResolver = contentResolver
-        var tmp = cacheDir
-        var dirName = DocumentFile.fromTreeUri(this, uri)?.name
-        tmp = File(tmp, dirName!!)
+        // Do not use a provider-controlled directory name as a cache path.
+        // A malformed provider can return an empty name or path separators.
+        val tmp = File(
+            cacheDir,
+            "selected_directory_${nextLocalRequestCode.getAndIncrement()}"
+        )
         if(tmp.exists()) {
             tmp.deleteRecursively()
         }
-        tmp.mkdir()
+        if (!tmp.mkdirs()) {
+            result.error("copy error", "Unable to create temporary directory", null)
+            return
+        }
         Thread {
             try {
                 copyDirectory(contentResolver, uri, tmp)
-                result.success(tmp.absolutePath)
+                runOnUiThread { result.success(tmp.absolutePath) }
             }
             catch (e: Exception) {
-                result.error("copy error", e.message, null)
+                tmp.deleteRecursively()
+                runOnUiThread { result.error("copy error", e.message, null) }
             }
         }.start()
 
     }
 
+    private fun isSafeDocumentName(name: String?): Boolean {
+        return !name.isNullOrBlank() && name != "." && name != ".." &&
+            !name.contains('/') && !name.contains('\\')
+    }
+
     private fun copyDirectory(resolver: ContentResolver, srcUri: Uri, destDir: File) {
         val src = DocumentFile.fromTreeUri(this, srcUri) ?: return
         for (file in src.listFiles()) {
+            val fileName = file.name
+            if (!isSafeDocumentName(fileName)) {
+                throw IOException("Invalid document name")
+            }
+            val newFile = File(destDir, fileName!!)
             if (file.isDirectory) {
-                val newDir = File(destDir, file.name!!)
-                newDir.mkdir()
+                val newDir = newFile
+                if (!newDir.mkdirs() && !newDir.isDirectory) {
+                    throw IOException("Unable to create directory")
+                }
                 copyDirectory(resolver, file.uri, newDir)
             } else {
-                val newFile = File(destDir, file.name!!)
-                resolver.openInputStream(file.uri)?.use { input ->
+                val input = resolver.openInputStream(file.uri)
+                    ?: throw IOException("Unable to open document")
+                input.use {
                     FileOutputStream(newFile).use { output ->
-                        input.copyTo(output, bufferSize = DEFAULT_BUFFER_SIZE)
+                        it.copyTo(output, bufferSize = DEFAULT_BUFFER_SIZE)
                         output.flush()
                     }
                 }
