@@ -8,6 +8,8 @@ import 'package:venera/foundation/history.dart';
 import 'appdata.dart';
 import 'favorites.dart';
 import 'local.dart';
+import 'read_later.dart';
+import 'reading_statistics.dart';
 
 export "widget_utils.dart";
 export "context.dart";
@@ -67,6 +69,10 @@ class _App {
 
   final LocalManager local = LocalManager();
 
+  final ReadLaterManager readLater = ReadLaterManager();
+
+  final ReadingStatisticsManager readingStatistics = ReadingStatisticsManager();
+
   void rootPop() {
     rootNavigatorKey.currentState?.maybePop();
   }
@@ -89,12 +95,22 @@ class _App {
   }
 
   Future<void> initComponents() async {
-    await Future.wait([
-      data.init(),
-      history.init(),
-      favorites.init(),
-      local.init(),
-    ]);
+    // Keep core storage initialization ordered so a failed component cannot
+    // race a retry while the other database handles are still opening.
+    await data.init();
+    await history.init();
+    await favorites.init();
+    await local.init();
+    await readLater.init();
+    await readingStatistics.init();
+  }
+
+  void closeComponents() {
+    readingStatistics.close();
+    readLater.close();
+    local.close();
+    favorites.close();
+    history.close();
   }
 
   Function? _forceRebuildHandler;

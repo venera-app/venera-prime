@@ -7,6 +7,7 @@ import 'package:flutter_saf/flutter_saf.dart';
 import 'package:path/path.dart' as path_utils;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
+import 'package:xml/xml.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
@@ -14,6 +15,8 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/natural_sort.dart';
+import 'package:venera/utils/atomic_file.dart';
 
 import 'app.dart';
 import 'history.dart';
@@ -27,6 +30,9 @@ class LocalComic with HistoryMixin implements Comic {
 
   @override
   final String subtitle;
+
+  /// Optional description imported from local archive metadata.
+  final String descriptionText;
 
   @override
   final List<String> tags;
@@ -51,10 +57,14 @@ class LocalComic with HistoryMixin implements Comic {
 
   final DateTime createdAt;
 
+  /// Whether deleting this record is allowed to remove its files.
+  final bool managedByApp;
+
   const LocalComic({
     required this.id,
     required this.title,
     required this.subtitle,
+    this.descriptionText = '',
     required this.tags,
     required this.directory,
     required this.chapters,
@@ -62,19 +72,26 @@ class LocalComic with HistoryMixin implements Comic {
     required this.comicType,
     required this.downloadedChapters,
     required this.createdAt,
+    this.managedByApp = true,
   });
 
   LocalComic.fromRow(Row row)
-    : id = row[0] as String,
-      title = row[1] as String,
-      subtitle = row[2] as String,
-      tags = List.from(jsonDecode(row[3] as String)),
-      directory = row[4] as String,
-      chapters = ComicChapters.fromJsonOrNull(jsonDecode(row[5] as String)),
-      cover = row[6] as String,
-      comicType = ComicType(row[7] as int),
-      downloadedChapters = List.from(jsonDecode(row[8] as String)),
-      createdAt = DateTime.fromMillisecondsSinceEpoch(row[9] as int);
+    : id = row['id'] as String,
+      title = row['title'] as String,
+      subtitle = row['subtitle'] as String,
+      descriptionText = row['description'] as String? ?? '',
+      tags = List.from(jsonDecode(row['tags'] as String)),
+      directory = row['directory'] as String,
+      chapters = ComicChapters.fromJsonOrNull(
+        jsonDecode(row['chapters'] as String),
+      ),
+      cover = row['cover'] as String,
+      comicType = ComicType(row['comic_type'] as int),
+      downloadedChapters = List.from(
+        jsonDecode(row['downloadedChapters'] as String),
+      ),
+      createdAt = DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+      managedByApp = (row['managed_by_app'] as int? ?? 1) != 0;
 
   File get coverFile => File(FilePath.join(baseDir, cover));
 
@@ -82,8 +99,10 @@ class LocalComic with HistoryMixin implements Comic {
       ? directory
       : FilePath.join(LocalManager().path, directory);
 
+  bool get isMissing => !Directory(baseDir).existsSync();
+
   @override
-  String get description => "";
+  String get description => descriptionText;
 
   @override
   String get sourceKey =>
@@ -167,6 +186,15 @@ class LocalComic with HistoryMixin implements Comic {
   double? get stars => null;
 }
 
+class _LocalMetadata {
+  final String? title;
+  final String? author;
+  final String? description;
+  final List<String>? tags;
+
+  const _LocalMetadata({this.title, this.author, this.description, this.tags});
+}
+
 class LocalManager with ChangeNotifier {
   static LocalManager? _instance;
 
@@ -177,6 +205,9 @@ class LocalManager with ChangeNotifier {
   }
 
   late Database _db;
+
+  bool isInitialized = false;
+  Future<void>? _initializing;
 
   /// path to the directory where all the comics are stored
   late String path;
@@ -217,9 +248,10 @@ class LocalManager with ChangeNotifier {
     _changingPath = true;
     try {
       await copyDirectoryIsolate(directory, newDir);
-      await File(
-        FilePath.join(App.dataPath, 'local_path'),
-      ).writeAsString(newPath);
+      await atomicWriteString(
+        File(FilePath.join(App.dataPath, 'local_path')),
+        newPath,
+      );
       await directory.deleteContents(recursive: true);
       path = newPath;
       _checkNoMedia();
@@ -270,12 +302,29 @@ class LocalManager with ChangeNotifier {
   }
 
   Future<void> _persistPath() async {
-    await File(
-      FilePath.join(App.dataPath, 'local_path'),
-    ).writeAsString(path, flush: true);
+    await atomicWriteString(
+      File(FilePath.join(App.dataPath, 'local_path')),
+      path,
+    );
   }
 
-  Future<void> init() async {
+  Future<void> init() => _initializing ??= _initWithReset();
+
+  Future<void> _initWithReset() async {
+    try {
+      await _initInternal();
+    } catch (_) {
+      _initializing = null;
+      isInitialized = false;
+      try {
+        _db.dispose();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<void> _initInternal() async {
+    if (isInitialized) return;
     final dbPath = '${App.dataPath}/local.db';
     try {
       _db = sqlite3.open(dbPath);
@@ -288,14 +337,16 @@ class LocalManager with ChangeNotifier {
         id TEXT NOT NULL,
         title TEXT NOT NULL,
         subtitle TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
         tags TEXT NOT NULL,
         directory TEXT NOT NULL,
         chapters TEXT NOT NULL,
         cover TEXT NOT NULL,
         comic_type INTEGER NOT NULL,
-        downloadedChapters TEXT NOT NULL,
-        created_at INTEGER,
-        PRIMARY KEY (id, comic_type)
+          downloadedChapters TEXT NOT NULL,
+          created_at INTEGER,
+          managed_by_app INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (id, comic_type)
       );
     ''');
     } catch (e, s) {
@@ -315,12 +366,25 @@ class LocalManager with ChangeNotifier {
       _db.execute('''
         CREATE TABLE comics (
           id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
           tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL,
           cover TEXT NOT NULL, comic_type INTEGER NOT NULL,
           downloadedChapters TEXT NOT NULL, created_at INTEGER,
+          managed_by_app INTEGER NOT NULL DEFAULT 1,
           PRIMARY KEY (id, comic_type)
         );
       ''');
+    }
+    final columns = _db.select('PRAGMA table_info(comics);');
+    if (!columns.any((row) => row['name'] == 'description')) {
+      _db.execute(
+        "ALTER TABLE comics ADD COLUMN description TEXT NOT NULL DEFAULT '';",
+      );
+    }
+    if (!columns.any((row) => row['name'] == 'managed_by_app')) {
+      _db.execute(
+        'ALTER TABLE comics ADD COLUMN managed_by_app INTEGER NOT NULL DEFAULT 1;',
+      );
     }
     if (File(FilePath.join(App.dataPath, 'local_path')).existsSync()) {
       final pathFile = File(FilePath.join(App.dataPath, 'local_path'));
@@ -349,6 +413,7 @@ class LocalManager with ChangeNotifier {
         restoreDownloadingTasks();
       }),
     );
+    isInitialized = true;
   }
 
   String findValidId(ComicType type) {
@@ -375,11 +440,15 @@ class LocalManager with ChangeNotifier {
       downloaded.addAll(old.downloadedChapters);
     }
     _db.execute(
-      'INSERT OR REPLACE INTO comics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+      '''INSERT OR REPLACE INTO comics
+         (id, title, subtitle, description, tags, directory, chapters, cover,
+          comic_type, downloadedChapters, created_at, managed_by_app)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);''',
       [
         id ?? comic.id,
         comic.title,
         comic.subtitle,
+        comic.description,
         jsonEncode(comic.tags),
         comic.directory,
         jsonEncode(comic.chapters),
@@ -387,6 +456,7 @@ class LocalManager with ChangeNotifier {
         comic.comicType.value,
         jsonEncode(downloaded.toList()),
         comic.createdAt.millisecondsSinceEpoch,
+        comic.managedByApp ? 1 : 0,
       ],
     );
     notifyListeners();
@@ -430,7 +500,14 @@ class LocalManager with ChangeNotifier {
   @override
   void dispose() {
     super.dispose();
+    close();
+  }
+
+  void close() {
+    if (!isInitialized) return;
     _db.dispose();
+    isInitialized = false;
+    _initializing = null;
   }
 
   List<LocalComic> getRecent() {
@@ -475,6 +552,296 @@ class LocalManager with ChangeNotifier {
     return res.map((row) => LocalComic.fromRow(row)).toList();
   }
 
+  Future<LocalRefreshResult> refresh({bool Function()? isCanceled}) async {
+    final root = Directory(path);
+    if (!await root.exists()) {
+      return const LocalRefreshResult(0, 0, 0, true);
+    }
+    var discovered = 0;
+    var updated = 0;
+    var missing = 0;
+    final known = <String, LocalComic>{
+      for (final comic in getComics(LocalSortType.timeDesc))
+        path_utils.canonicalize(comic.baseDir): comic,
+    };
+    await for (final entity in root.list()) {
+      if (isCanceled?.call() == true) {
+        return LocalRefreshResult(discovered, updated, missing, true);
+      }
+      if (entity is! Directory ||
+          FileSystemEntity.typeSync(entity.path, followLinks: false) ==
+              FileSystemEntityType.link) {
+        continue;
+      }
+      final canonical = path_utils.canonicalize(entity.path);
+      final existing = known[canonical];
+      final imageFiles = await _imageFiles(entity);
+      final chapterDirs = <Directory>[];
+      await for (final child in entity.list()) {
+        if (child is Directory &&
+            FileSystemEntity.typeSync(child.path, followLinks: false) !=
+                FileSystemEntityType.link &&
+            (await _imageFiles(child)).isNotEmpty) {
+          chapterDirs.add(child);
+        }
+      }
+      chapterDirs.sort((a, b) => naturalCompare(a.name, b.name));
+      final metadata = await _readLocalMetadata(entity);
+      if (existing != null) {
+        updated++;
+        final cover = await _findCover(entity, imageFiles, chapterDirs);
+        final refreshedChapters = _chaptersFromDisk(existing, chapterDirs);
+        var title = metadata?.title ?? existing.title;
+        if (title != existing.title) {
+          final duplicate = findByName(title);
+          if (duplicate != null && duplicate.id != existing.id) {
+            title = existing.title;
+          }
+        }
+        final refreshed = LocalComic(
+          id: existing.id,
+          title: title,
+          subtitle: metadata?.author ?? existing.subtitle,
+          descriptionText: metadata?.description ?? existing.descriptionText,
+          tags: metadata?.tags ?? existing.tags,
+          directory: existing.directory,
+          chapters: refreshedChapters ?? existing.chapters,
+          cover: cover ?? existing.cover,
+          comicType: existing.comicType,
+          downloadedChapters: _downloadedChapterIds(
+            refreshedChapters ?? existing.chapters,
+            chapterDirs,
+          ),
+          createdAt: existing.createdAt,
+          managedByApp: existing.managedByApp,
+        );
+        if (!_sameLocalMetadata(existing, refreshed)) {
+          await add(refreshed);
+        }
+        continue;
+      }
+      if (imageFiles.isEmpty && chapterDirs.isEmpty) continue;
+      final cover = await _findCover(entity, imageFiles, chapterDirs);
+      if (cover == null) continue;
+      final chapters = chapterDirs.isEmpty
+          ? null
+          : ComicChapters({
+              for (final chapter in chapterDirs) chapter.name: chapter.name,
+            });
+      final comic = LocalComic(
+        id: findValidId(ComicType.local),
+        title: metadata?.title ?? entity.name,
+        subtitle: metadata?.author ?? '',
+        descriptionText: metadata?.description ?? '',
+        tags: metadata?.tags ?? const [],
+        directory: entity.name,
+        chapters: chapters,
+        cover: cover,
+        comicType: ComicType.local,
+        downloadedChapters: chapters?.ids.toList() ?? const [],
+        createdAt: (await entity.stat()).modified,
+      );
+      await add(comic);
+      discovered++;
+    }
+    for (final comic in known.values) {
+      if (comic.isMissing) missing++;
+    }
+    notifyListeners();
+    return LocalRefreshResult(discovered, updated, missing, false);
+  }
+
+  Future<_LocalMetadata?> _readLocalMetadata(Directory directory) async {
+    final jsonFile = File(FilePath.join(directory.path, 'metadata.json'));
+    if (await jsonFile.exists()) {
+      try {
+        final decoded = jsonDecode(await jsonFile.readAsString());
+        if (decoded is Map) {
+          String? text(String key) {
+            final value = decoded[key];
+            if (value is! String || value.length > 1024 * 1024) return null;
+            final trimmed = value.trim();
+            return trimmed.isEmpty ? null : trimmed;
+          }
+
+          final rawTags = decoded['tags'];
+          List<String>? tags;
+          if (rawTags is List && rawTags.length <= 256) {
+            final values = rawTags.whereType<String>().toList();
+            if (values.length == rawTags.length &&
+                values.every((value) => value.length <= 1024)) {
+              tags = values;
+            }
+          } else if (rawTags is String && rawTags.length <= 64 * 1024) {
+            tags = rawTags
+                .split(RegExp(r'[,;|]'))
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .take(256)
+                .toList();
+          }
+          return _LocalMetadata(
+            title: text('title') ?? text('Title'),
+            author: text('author') ?? text('Author'),
+            description: text('description') ?? text('summary'),
+            tags: tags,
+          );
+        }
+      } catch (_) {}
+    }
+
+    final xmlFile = File(FilePath.join(directory.path, 'ComicInfo.xml'));
+    if (await xmlFile.exists()) {
+      try {
+        final document = XmlDocument.parse(await xmlFile.readAsString());
+        String read(String name) {
+          return document.descendants
+              .whereType<XmlElement>()
+              .where((element) => element.localName == name)
+              .map((element) => element.innerText.trim())
+              .where((value) => value.isNotEmpty)
+              .join(', ');
+        }
+
+        String? nullableText(String value) => value.isEmpty ? null : value;
+        final genres = read('Genre')
+            .split(RegExp(r'[,;]'))
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .take(256)
+            .toList();
+        return _LocalMetadata(
+          title: nullableText(read('Title')),
+          author:
+              (nullableText(read('Writer')) ?? nullableText(read('Penciller'))),
+          description: nullableText(read('Summary')),
+          tags: genres,
+        );
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  ComicChapters? _chaptersFromDisk(
+    LocalComic existing,
+    List<Directory> chapterDirs,
+  ) {
+    if (chapterDirs.isEmpty) return existing.chapters;
+    final diskNames = chapterDirs.map((directory) => directory.name).toSet();
+    final chapters = <String, String>{};
+    final existingChapters = existing.chapters?.allChapters ?? const {};
+    if (existing.comicType != ComicType.local) {
+      // Network downloads may only contain a subset of the source chapters.
+      // Keep the source metadata and add any chapter directories introduced
+      // by an older export or a manual filesystem change.
+      chapters.addAll(existingChapters);
+    } else {
+      for (final entry in existingChapters.entries) {
+        final directoryName = getChapterDirectoryName(entry.key);
+        if (diskNames.contains(entry.key) ||
+            diskNames.contains(directoryName)) {
+          chapters[entry.key] = entry.value;
+        }
+      }
+    }
+    for (final directory in chapterDirs) {
+      if (!chapters.keys.any(
+        (id) => getChapterDirectoryName(id) == directory.name,
+      )) {
+        chapters[directory.name] = directory.name;
+      }
+    }
+    return chapters.isEmpty ? null : ComicChapters(chapters);
+  }
+
+  List<String> _downloadedChapterIds(
+    ComicChapters? chapters,
+    List<Directory> chapterDirs,
+  ) {
+    if (chapters == null || chapterDirs.isEmpty) return const [];
+    final existingIds = chapters.allChapters.keys.toList();
+    return chapterDirs
+        .map((directory) {
+          return existingIds.firstWhere(
+            (id) =>
+                id == directory.name ||
+                getChapterDirectoryName(id) == directory.name,
+            orElse: () => directory.name,
+          );
+        })
+        .toSet()
+        .toList();
+  }
+
+  bool _sameLocalMetadata(LocalComic a, LocalComic b) {
+    return a.title == b.title &&
+        a.subtitle == b.subtitle &&
+        a.descriptionText == b.descriptionText &&
+        a.cover == b.cover &&
+        _sameList(a.tags, b.tags) &&
+        _sameList(a.downloadedChapters, b.downloadedChapters) &&
+        jsonEncode(a.chapters?.toJson()) == jsonEncode(b.chapters?.toJson());
+  }
+
+  bool _sameList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  Future<List<File>> _imageFiles(
+    Directory directory, {
+    bool includeCover = false,
+  }) async {
+    const extensions = {
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'jpe',
+      'avif',
+      'bmp',
+    };
+    final files = <File>[];
+    if (!await directory.exists()) return files;
+    await for (final entity in directory.list()) {
+      if (entity is File &&
+          extensions.contains(entity.extension.toLowerCase()) &&
+          (includeCover || !entity.name.toLowerCase().startsWith('cover.'))) {
+        files.add(entity);
+      }
+    }
+    files.sort((a, b) => naturalCompare(a.name, b.name));
+    return files;
+  }
+
+  Future<String?> _findCover(
+    Directory root,
+    List<File> rootImages,
+    List<Directory> chapterDirs,
+  ) async {
+    final cover = await _imageFiles(root, includeCover: true);
+    File? preferred;
+    for (final file in cover) {
+      if (file.basenameWithoutExt.toLowerCase() == 'cover') {
+        preferred = file;
+        break;
+      }
+    }
+    if (preferred != null) return preferred.name;
+    if (rootImages.isNotEmpty) return rootImages.first.name;
+    if (chapterDirs.isNotEmpty) {
+      final images = await _imageFiles(chapterDirs.first);
+      if (images.isNotEmpty) {
+        return FilePath.join(chapterDirs.first.name, images.first.name);
+      }
+    }
+    return null;
+  }
+
   Future<List<String>> getImages(String id, ComicType type, Object ep) async {
     if (ep is! String && ep is! int) {
       throw "Invalid ep";
@@ -493,7 +860,7 @@ class LocalManager with ChangeNotifier {
       if (entity is File) {
         // Do not exclude comic.cover, since it may be the first page of the chapter.
         // A file with name starting with 'cover.' is not a comic page.
-        if (entity.name.startsWith('cover.')) {
+        if (entity.name.toLowerCase().startsWith('cover.')) {
           continue;
         }
         //Hidden file in some file system
@@ -518,14 +885,7 @@ class LocalManager with ChangeNotifier {
         files.add(entity);
       }
     }
-    files.sort((a, b) {
-      var ai = int.tryParse(a.name.split('.').first);
-      var bi = int.tryParse(b.name.split('.').first);
-      if (ai != null && bi != null) {
-        return ai.compareTo(bi);
-      }
-      return a.name.compareTo(b.name);
-    });
+    files.sort((a, b) => naturalCompare(a.name, b.name));
     return files.map((e) => "file://${e.path}").toList();
   }
 
@@ -546,6 +906,7 @@ class LocalManager with ChangeNotifier {
             id: comic.id,
             title: comic.title,
             subtitle: comic.subtitle,
+            descriptionText: comic.descriptionText,
             tags: comic.tags,
             directory: comic.directory,
             chapters: chapters,
@@ -553,6 +914,7 @@ class LocalManager with ChangeNotifier {
             comicType: comic.comicType,
             downloadedChapters: comic.downloadedChapters,
             createdAt: comic.createdAt,
+            managedByApp: comic.managedByApp,
           ),
         );
       }
@@ -584,7 +946,7 @@ class LocalManager with ChangeNotifier {
       name = name.substring(0, comicDirectoryMaxLength);
     }
     var dir = findValidDirectoryName(path, name);
-    return Directory(FilePath.join(path, dir)).create().then((value) => value);
+    return Directory(FilePath.join(path, dir));
   }
 
   void completeTask(DownloadTask task) {
@@ -617,9 +979,10 @@ class LocalManager with ChangeNotifier {
 
   Future<void> saveCurrentDownloadingTasks() async {
     var tasks = downloadingTasks.map((e) => e.toJson()).toList();
-    await File(
-      FilePath.join(App.dataPath, 'downloading_tasks.json'),
-    ).writeAsString(jsonEncode(tasks));
+    await atomicWriteString(
+      File(FilePath.join(App.dataPath, 'downloading_tasks.json')),
+      jsonEncode(tasks),
+    );
   }
 
   void restoreDownloadingTasks() {
@@ -627,14 +990,23 @@ class LocalManager with ChangeNotifier {
     if (file.existsSync()) {
       try {
         var tasks = jsonDecode(file.readAsStringSync());
+        if (tasks is! Iterable) {
+          throw const FormatException('Invalid task list');
+        }
         for (var e in tasks) {
-          var task = DownloadTask.fromJson(e);
-          if (task != null) {
-            downloadingTasks.add(task);
+          if (e is! Map<String, dynamic>) continue;
+          try {
+            var task = DownloadTask.fromJson(e);
+            if (task != null) downloadingTasks.add(task);
+          } catch (taskError, taskStack) {
+            Log.error(
+              "LocalManager",
+              "Failed to restore one download task: $taskError",
+              taskStack,
+            );
           }
         }
       } catch (e) {
-        file.delete();
         Log.error("LocalManager", "Failed to restore downloading tasks: $e");
       }
     }
@@ -651,7 +1023,7 @@ class LocalManager with ChangeNotifier {
   }
 
   void deleteComic(LocalComic c, [bool removeFileOnDisk = true]) {
-    if (removeFileOnDisk) {
+    if (removeFileOnDisk && c.managedByApp && _isManagedPath(c.baseDir)) {
       _deleteDirectories([Directory(c.baseDir)]);
     }
     // Deleting a local comic means that it's no longer available, thus both favorite and history should be deleted.
@@ -695,7 +1067,9 @@ class LocalManager with ChangeNotifier {
         shouldRemovedDirs.add(dir);
       }
     }
-    if (shouldRemovedDirs.isNotEmpty) {
+    if (c.managedByApp &&
+        shouldRemovedDirs.isNotEmpty &&
+        shouldRemovedDirs.every((dir) => _isManagedPath(dir.path))) {
       _deleteDirectories(shouldRemovedDirs);
     }
     notifyListeners();
@@ -716,7 +1090,7 @@ class LocalManager with ChangeNotifier {
       for (var c in comics) {
         if (removeFileOnDisk) {
           var dir = Directory(c.baseDir);
-          if (dir.existsSync()) {
+          if (dir.existsSync() && c.managedByApp && _isManagedPath(dir.path)) {
             shouldRemovedDirs.add(dir);
           }
         }
@@ -749,6 +1123,7 @@ class LocalManager with ChangeNotifier {
   /// Deletes the directories in a separate isolate to avoid blocking the UI thread.
   static void _deleteDirectories(List<Directory> directories) {
     final paths = directories.map((dir) => dir.path).toList();
+    final root = path_utils.canonicalize(LocalManager().path);
     unawaited(
       Isolate.run(() async {
             var errors = <String>[];
@@ -757,9 +1132,45 @@ class LocalManager with ChangeNotifier {
               for (var path in paths) {
                 var dir = Directory(path);
                 try {
+                  final target = path_utils.canonicalize(path);
+                  var current = target;
+                  var safe =
+                      target != root && path_utils.isWithin(root, target);
+                  while (safe) {
+                    if (FileSystemEntity.typeSync(
+                          current,
+                          followLinks: false,
+                        ) ==
+                        FileSystemEntityType.link) {
+                      safe = false;
+                      break;
+                    }
+                    if (current == root) break;
+                    final parent = path_utils.dirname(current);
+                    if (parent == current ||
+                        !path_utils.isWithin(root, parent)) {
+                      safe = false;
+                      break;
+                    }
+                    current = parent;
+                  }
+                  if (!safe) {
+                    throw const FileSystemException(
+                      'Refusing to delete a path outside local storage',
+                    );
+                  }
                   for (var attempt = 0; attempt < 3; attempt++) {
                     if (!await dir.exists()) {
                       break;
+                    }
+                    if (FileSystemEntity.typeSync(
+                          dir.path,
+                          followLinks: false,
+                        ) ==
+                        FileSystemEntityType.link) {
+                      throw const FileSystemException(
+                        'Refusing to delete a symbolic link',
+                      );
                     }
                     try {
                       await dir.delete(recursive: true);
@@ -804,6 +1215,31 @@ class LocalManager with ChangeNotifier {
     );
   }
 
+  bool _isManagedPath(String candidate) {
+    final root = path_utils.canonicalize(path);
+    final target = path_utils.canonicalize(candidate);
+    if (target == root || !path_utils.isWithin(root, target)) return false;
+
+    // A canonical string alone does not protect against an existing symlink
+    // in a path component. Reject links before any caller writes or deletes.
+    var current = target;
+    while (true) {
+      if (FileSystemEntity.typeSync(current, followLinks: false) ==
+          FileSystemEntityType.link) {
+        return false;
+      }
+      if (current == root) break;
+      final parent = path_utils.dirname(current);
+      if (parent == current || !path_utils.isWithin(root, parent)) {
+        return false;
+      }
+      current = parent;
+    }
+    return true;
+  }
+
+  bool isManagedPath(String candidate) => _isManagedPath(candidate);
+
   static String getChapterDirectoryName(String name) {
     var builder = StringBuffer();
     for (var i = 0; i < name.length; i++) {
@@ -824,6 +1260,20 @@ class LocalManager with ChangeNotifier {
     }
     return builder.toString();
   }
+}
+
+class LocalRefreshResult {
+  final int discovered;
+  final int updated;
+  final int missing;
+  final bool canceled;
+
+  const LocalRefreshResult(
+    this.discovered,
+    this.updated,
+    this.missing,
+    this.canceled,
+  );
 }
 
 enum LocalSortType {

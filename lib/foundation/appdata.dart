@@ -8,6 +8,7 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/atomic_file.dart';
 
 class Appdata with Init {
   Appdata._create();
@@ -17,6 +18,63 @@ class Appdata with Init {
   var searchHistory = <String>[];
 
   bool _isSavingData = false;
+
+  static final _invalidSetting = Object();
+
+  Object? _sanitizeValue(Object? value, [int depth = 0]) {
+    if (depth > 8) return _invalidSetting;
+    if (value == null || value is bool || value is num) return value;
+    if (value is String) {
+      return value.length <= 1024 * 1024 ? value : _invalidSetting;
+    }
+    if (value is List) {
+      if (value.length > 10000) return _invalidSetting;
+      final result = <dynamic>[];
+      for (final item in value) {
+        final sanitized = _sanitizeValue(item, depth + 1);
+        if (identical(sanitized, _invalidSetting)) return _invalidSetting;
+        result.add(sanitized);
+      }
+      return result;
+    }
+    if (value is Map) {
+      if (value.length > 1000) return _invalidSetting;
+      final result = <String, dynamic>{};
+      for (final entry in value.entries) {
+        if (entry.key is! String) return _invalidSetting;
+        final sanitized = _sanitizeValue(entry.value, depth + 1);
+        if (identical(sanitized, _invalidSetting)) return _invalidSetting;
+        result[entry.key as String] = sanitized;
+      }
+      return result;
+    }
+    return _invalidSetting;
+  }
+
+  bool _matchesExpectedType(Object? expected, Object? value) {
+    if (expected == null || value == null) return true;
+    if (expected is bool) return value is bool;
+    if (expected is num) return value is num;
+    if (expected is String) return value is String;
+    if (expected is List) return value is List;
+    if (expected is Map) return value is Map;
+    return true;
+  }
+
+  Map<String, dynamic> _sanitizeSettings(Map raw) {
+    final result = <String, dynamic>{};
+    for (final entry in raw.entries) {
+      if (entry.key is! String) continue;
+      final value = _sanitizeValue(entry.value);
+      if (identical(value, _invalidSetting) ||
+          !_matchesExpectedType(settings._data[entry.key], value)) {
+        Log.warning("Appdata", "Ignoring an invalid setting: ${entry.key}");
+        continue;
+      }
+      result[entry.key as String] = value;
+    }
+    return result;
+  }
 
   Future<void> saveData([bool sync = true]) async {
     while (_isSavingData) {
@@ -28,18 +86,19 @@ class Appdata with Init {
       var json = toJson();
       var data = jsonEncode(json);
       var file = File(FilePath.join(App.dataPath, 'appdata.json'));
-      futures.add(file.writeAsString(data));
+      futures.add(atomicWriteString(file, data));
 
       var disableSyncFields =
           json["settings"]["disableSyncFields"]?.toString() ?? '';
-      if (disableSyncFields.isNotEmpty) {
-        var json4sync = jsonDecode(data);
-        List<String> customDisableSync = splitField(disableSyncFields);
-        _removeSyncDisabledFields(json4sync["settings"], customDisableSync);
-        var data4sync = jsonEncode(json4sync);
-        var file4sync = File(FilePath.join(App.dataPath, 'syncdata.json'));
-        futures.add(file4sync.writeAsString(data4sync));
-      }
+      var json4sync = jsonDecode(data);
+      final customDisableSync = splitField(disableSyncFields);
+      _removeSyncDisabledFields(
+        json4sync["settings"],
+        {..._disableSync, ...customDisableSync}.toList(),
+      );
+      var data4sync = jsonEncode(json4sync);
+      var file4sync = File(FilePath.join(App.dataPath, 'syncdata.json'));
+      futures.add(atomicWriteString(file4sync, data4sync));
 
       await Future.wait(futures);
     } finally {
@@ -106,20 +165,45 @@ class Appdata with Init {
     "deviceSpecificSettings",
   ];
 
+  static const _secretSyncFields = {
+    "account",
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "cookie",
+    "set_cookie",
+    "secret",
+  };
+
+  static bool _isSecretSyncField(String field) {
+    final normalized = field.toLowerCase().replaceAll('-', '_');
+    return _secretSyncFields.contains(normalized) ||
+        normalized.contains('token');
+  }
+
   static void _removeSyncDisabledFields(
     Map<String, dynamic> settings,
     List<String> disabledFields,
   ) {
-    for (var field in disabledFields) {
-      settings.remove(field);
+    for (final field in settings.keys.toList()) {
+      if (disabledFields.contains(field) || _isSecretSyncField(field)) {
+        settings.remove(field);
+      }
     }
     for (var containerKey in _readerScopedSettingContainers) {
       var container = settings[containerKey];
       if (container is Map) {
         for (var scopedSettings in container.values) {
           if (scopedSettings is Map) {
-            for (var field in disabledFields) {
-              scopedSettings.remove(field);
+            for (final field in scopedSettings.keys.toList()) {
+              if (disabledFields.contains(field) ||
+                  _isSecretSyncField(field.toString())) {
+                scopedSettings.remove(field);
+              }
             }
           }
         }
@@ -178,12 +262,22 @@ class Appdata with Init {
     "webdav",
     "disableSyncFields",
     "deviceId",
+    "account",
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "cookie",
+    "secret",
   ];
 
   /// Sync data from another device
-  void syncData(Map<String, dynamic> data) {
+  void syncData(Map<String, dynamic> data, {bool persist = true}) {
     if (data['settings'] is Map) {
-      var settings = Map<String, dynamic>.from(data['settings']);
+      var settings = _sanitizeSettings(data['settings'] as Map);
 
       List<String> customDisableSync = splitField(
         this.settings["disableSyncFields"]?.toString() ?? '',
@@ -210,9 +304,15 @@ class Appdata with Init {
     // Ignore malformed history instead of crashing during startup sync.
     final remoteHistory = data['searchHistory'];
     if (remoteHistory is List) {
-      searchHistory = remoteHistory.whereType<String>().toList();
+      searchHistory = remoteHistory
+          .whereType<String>()
+          .where((value) => value.length <= 4096)
+          .take(50)
+          .toList();
     }
-    saveData();
+    if (persist) {
+      saveData();
+    }
   }
 
   var implicitData = <String, dynamic>{};
@@ -224,7 +324,7 @@ class Appdata with Init {
     _isSavingData = true;
     try {
       var file = File(FilePath.join(App.dataPath, 'implicitData.json'));
-      await file.writeAsString(jsonEncode(implicitData));
+      await atomicWriteString(file, jsonEncode(implicitData));
     } finally {
       _isSavingData = false;
     }
@@ -241,20 +341,34 @@ class Appdata with Init {
       var json = jsonDecode(await file.readAsString());
       final rawSettings = json is Map ? json['settings'] : null;
       if (rawSettings is Map) {
-        for (var entry in rawSettings.entries) {
-          if (entry.key is String && entry.value != null) {
-            settings[entry.key as String] = entry.value;
-          }
+        for (var entry in _sanitizeSettings(rawSettings).entries) {
+          if (entry.value != null) settings[entry.key] = entry.value;
         }
       }
       final loadedHistory = json is Map ? json['searchHistory'] : null;
       if (loadedHistory is List) {
-        searchHistory = loadedHistory.whereType<String>().toList();
+        searchHistory = loadedHistory
+            .whereType<String>()
+            .where((value) => value.length <= 4096)
+            .take(50)
+            .toList();
       }
-    } catch (e) {
+    } catch (e, s) {
       Log.error("Appdata", "Failed to load appdata", e);
-      Log.info("Appdata", "Resetting appdata");
-      file.deleteIgnoreError();
+      final corrupt = File(
+        '${file.path}.corrupt.${DateTime.now().millisecondsSinceEpoch}',
+      );
+      try {
+        await file.rename(corrupt.path);
+        Log.info("Appdata", "Moved invalid appdata to ${corrupt.path}");
+      } catch (renameError, renameStack) {
+        Log.error(
+          "Appdata",
+          "Failed to preserve invalid appdata: $renameError",
+          renameStack,
+        );
+        Log.error("Appdata", "Original appdata error: $e", s);
+      }
     }
     if (settings["deviceId"]?.toString().isEmpty ?? true) {
       settings._data["deviceId"] = const Uuid().v4();
@@ -336,6 +450,7 @@ class Settings with ChangeNotifier {
     'sni': true,
     'autoAddLanguageFilter': 'none', // none, chinese, english, japanese
     'comicSourceListUrl': _defaultSourceListUrl,
+    'comicSourceOrder': <String>[],
     'preloadImageCount': 4,
     'followUpdatesFolder': null,
     'followUpdatesCheckOnStart': true,
@@ -358,6 +473,11 @@ class Settings with ChangeNotifier {
     'showChapterComments': true, // show chapter comments in reader
     'showChapterCommentsAtEnd':
         false, // show chapter comments at end of chapter
+    'readerBackground': 'theme', // theme, white, gray, black, sepia
+    'readerNightMode': 'none', // none, warm, dark, red
+    'readerNightModeIntensity': 0.25, // 0.0 - 0.8
+    'removeReadLaterOnComplete': true,
+    'hideDuplicateChapters': true,
   };
 
   operator [](String key) {

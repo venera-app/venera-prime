@@ -8,6 +8,9 @@ import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/read_later.dart';
+import 'package:venera/foundation/random_comic_picker.dart';
+import 'package:venera/foundation/reading_statistics.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/comic_source_page.dart';
@@ -22,6 +25,8 @@ import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
 import 'local_comics_page.dart';
+import 'read_later_page.dart';
+import 'reading_statistics_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -33,7 +38,10 @@ class HomePage extends StatelessWidget {
         SliverPadding(padding: EdgeInsets.only(top: context.padding.top)),
         const _SearchBar(),
         const _SyncDataWidget(),
+        const _RandomComicAction(),
         const _History(),
+        const _ReadLater(),
+        const _ReadingStatisticsPreview(),
         const _Local(),
         const FollowUpdatesWidget(),
         const _ComicSourceWidget(),
@@ -43,6 +51,349 @@ class HomePage extends StatelessWidget {
     );
     return context.width > changePoint ? widget.paddingHorizontal(8) : widget;
   }
+}
+
+class _RandomComicAction extends StatelessWidget {
+  const _RandomComicAction();
+
+  Future<void> _pick(BuildContext context) async {
+    final folders = LocalFavoritesManager().folderNames;
+    var submitted = false;
+    final result = await showDialog<Comic?>(
+      context: context,
+      builder: (context) {
+        var collection = 'favorites';
+        var folder = '';
+        var status = RandomComicStatus.any;
+        return StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: Text('Random comic'.tl),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  key: ValueKey('random-collection-$collection'),
+                  initialValue: collection,
+                  decoration: InputDecoration(labelText: 'From'.tl),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'favorites',
+                      child: Text('Favorites'.tl),
+                    ),
+                    DropdownMenuItem(
+                      value: 'history',
+                      child: Text('History'.tl),
+                    ),
+                    DropdownMenuItem(value: 'local', child: Text('Local'.tl)),
+                  ],
+                  onChanged: (value) => setState(() {
+                    collection = value ?? 'favorites';
+                  }),
+                ),
+                if (collection == 'favorites')
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('random-folder-$folder'),
+                    initialValue: folder,
+                    decoration: InputDecoration(labelText: 'Folder'.tl),
+                    items: [
+                      DropdownMenuItem(value: '', child: Text('All'.tl)),
+                      ...folders.map(
+                        (name) =>
+                            DropdownMenuItem(value: name, child: Text(name)),
+                      ),
+                    ],
+                    onChanged: (value) => setState(() => folder = value ?? ''),
+                  ),
+                DropdownButtonFormField<RandomComicStatus>(
+                  key: ValueKey('random-status-$status'),
+                  initialValue: status,
+                  decoration: InputDecoration(labelText: 'Status'.tl),
+                  items: [
+                    DropdownMenuItem(
+                      value: RandomComicStatus.any,
+                      child: Text('Any'.tl),
+                    ),
+                    DropdownMenuItem(
+                      value: RandomComicStatus.notStarted,
+                      child: Text('Not started'.tl),
+                    ),
+                    DropdownMenuItem(
+                      value: RandomComicStatus.inProgress,
+                      child: Text('In progress'.tl),
+                    ),
+                    DropdownMenuItem(
+                      value: RandomComicStatus.completed,
+                      child: Text('Completed'.tl),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => status = value ?? RandomComicStatus.any),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('Cancel'.tl),
+              ),
+              FilledButton.icon(
+                icon: const Icon(Icons.shuffle),
+                label: Text('Pick'.tl),
+                onPressed: () {
+                  submitted = true;
+                  final candidates = switch (collection) {
+                    'history' => RandomComicPicker.history(),
+                    'local' => RandomComicPicker.local(),
+                    _ => RandomComicPicker.favorites(
+                      folder.isEmpty ? null : folder,
+                    ),
+                  };
+                  Navigator.of(
+                    context,
+                  ).pop(RandomComicPicker.pick(candidates, status: status));
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (!submitted) return;
+    final comic = result;
+    if (comic == null) {
+      context.showMessage(message: 'No random comic candidate'.tl);
+      return;
+    }
+    if (comic is LocalComic) {
+      comic.read();
+    } else {
+      context.to(
+        () => ComicPage(
+          id: comic.id,
+          sourceKey: comic.sourceKey,
+          cover: comic.cover,
+          title: comic.title,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+    child: ListTile(
+      leading: const Icon(Icons.shuffle),
+      title: Text('Random comic'.tl),
+      onTap: () => _pick(context),
+    ),
+  );
+}
+
+class _ReadLater extends StatefulWidget {
+  const _ReadLater();
+  @override
+  State<_ReadLater> createState() => _ReadLaterState();
+}
+
+class _ReadLaterState extends State<_ReadLater> {
+  List<ReadLaterComic> comics = ReadLaterManager().getAll();
+  @override
+  void initState() {
+    super.initState();
+    ReadLaterManager().addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    ReadLaterManager().removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() {
+    if (mounted) setState(() => comics = ReadLaterManager().getAll());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (comics.isEmpty) return const SliverPadding(padding: EdgeInsets.zero);
+    return SliverToBoxAdapter(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: .6,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.watch_later_outlined),
+              title: Text('Read later'.tl),
+              trailing: const Icon(Icons.arrow_right),
+              onTap: () => context.to(() => const ReadLaterPage()),
+            ),
+            SizedBox(
+              height: 136,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: comics.length,
+                itemBuilder: (context, index) => SimpleComicTile(
+                  comic: comics[index],
+                  onTap: () => context.to(
+                    () => ComicPage(
+                      id: comics[index].id,
+                      sourceKey: comics[index].sourceKey,
+                      cover: comics[index].cover,
+                      title: comics[index].title,
+                    ),
+                  ),
+                ).paddingHorizontal(8).paddingVertical(2),
+              ),
+            ).paddingHorizontal(8).paddingBottom(8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadingStatisticsPreview extends StatefulWidget {
+  const _ReadingStatisticsPreview();
+
+  @override
+  State<_ReadingStatisticsPreview> createState() =>
+      _ReadingStatisticsPreviewState();
+}
+
+class _ReadingStatisticsPreviewState extends State<_ReadingStatisticsPreview> {
+  final manager = ReadingStatisticsManager();
+
+  @override
+  void initState() {
+    super.initState();
+    manager.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    manager.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final week = [
+      for (var i = 6; i >= 0; i--)
+        manager.durationForDay(DateTime(now.year, now.month, now.day - i)),
+    ];
+    final weekTotal = week.fold(0, (sum, value) => sum + value);
+    final maximum = week.fold(0, (max, value) => value > max ? value : max);
+
+    return SliverToBoxAdapter(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: .6,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.insights_outlined),
+              title: Text('Reading statistics'.tl),
+              subtitle: Text(
+                '${'Last 7 days'.tl}: ${formatReadingDuration(weekTotal)}',
+              ),
+              trailing: const Icon(Icons.arrow_right),
+              onTap: () => context.to(() => const ReadingStatisticsPage()),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _PreviewMetric(
+                      label: 'Today'.tl,
+                      value: formatReadingDuration(week.last),
+                    ),
+                  ),
+                  Expanded(
+                    child: _PreviewMetric(
+                      label: 'Last 7 days'.tl,
+                      value: formatReadingDuration(weekTotal),
+                    ),
+                  ),
+                  Expanded(
+                    child: _PreviewMetric(
+                      label: 'Total'.tl,
+                      value: formatReadingDuration(manager.totalDuration()),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 74,
+                    height: 42,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        for (final value in week)
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 1,
+                              ),
+                              child: FractionallySizedBox(
+                                heightFactor: maximum == 0
+                                    ? .04
+                                    : (value / maximum).clamp(.04, 1.0),
+                                alignment: Alignment.bottomCenter,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary
+                                        .withValues(alpha: .72),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewMetric extends StatelessWidget {
+  const _PreviewMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: ts.s12),
+      const SizedBox(height: 4),
+      Text(value, style: ts.s16),
+    ],
+  );
 }
 
 class _SearchBar extends StatelessWidget {
@@ -132,17 +483,15 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            border: Border.all(color: Theme.of(context).colorScheme.primary),
             borderRadius: BorderRadius.circular(8),
           ),
           child: ListTile(
             leading: const Icon(Icons.sync),
             title: Text('Syncing Data'.tl),
-            trailing: const CircularProgressIndicator(strokeWidth: 2)
-                .fixWidth(18)
-                .fixHeight(18),
+            trailing: const CircularProgressIndicator(
+              strokeWidth: 2,
+            ).fixWidth(18).fixHeight(18),
           ),
         ),
       );
@@ -277,13 +626,13 @@ class _HistoryState extends State<_History> {
                 height: 56,
                 child: Row(
                   children: [
-                    Center(
-                      child: Text('History'.tl, style: ts.s18),
-                    ),
+                    Center(child: Text('History'.tl, style: ts.s18)),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 8),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.secondaryContainer,
                         borderRadius: BorderRadius.circular(8),
@@ -302,7 +651,9 @@ class _HistoryState extends State<_History> {
                     scrollDirection: Axis.horizontal,
                     itemCount: history.length,
                     itemBuilder: (context, index) {
-                      final heroID = history[index].id.hashCode;
+                      final heroID =
+                          'history:${history[index].sourceKey}:${history[index].id}'
+                              .hashCode;
                       return SimpleComicTile(
                         comic: history[index],
                         heroID: heroID,
@@ -385,9 +736,7 @@ class _LocalState extends State<_Local> {
                 height: 56,
                 child: Row(
                   children: [
-                    Center(
-                      child: Text('Local'.tl, style: ts.s18),
-                    ),
+                    Center(child: Text('Local'.tl, style: ts.s18)),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 8),
                       padding: const EdgeInsets.symmetric(
@@ -412,7 +761,9 @@ class _LocalState extends State<_Local> {
                     scrollDirection: Axis.horizontal,
                     itemCount: local.length,
                     itemBuilder: (context, index) {
-                      final heroID = local[index].id.hashCode;
+                      final heroID =
+                          'local:${local[index].sourceKey}:${local[index].id}'
+                              .hashCode;
                       return SimpleComicTile(
                         comic: local[index],
                         heroID: heroID,
@@ -442,9 +793,11 @@ class _LocalState extends State<_Local> {
                           else
                             const _AnimatedDownloadingIcon(),
                           const SizedBox(width: 8),
-                          Text("@a Tasks".tlParams({
-                            'a': LocalManager().downloadingTasks.length,
-                          })),
+                          Text(
+                            "@a Tasks".tlParams({
+                              'a': LocalManager().downloadingTasks.length,
+                            }),
+                          ),
                         ],
                       ),
                       onPressed: () {
@@ -452,10 +805,7 @@ class _LocalState extends State<_Local> {
                       },
                     ),
                   const Spacer(),
-                  Button.filled(
-                    onPressed: import,
-                    child: Text("Import".tl),
-                  ),
+                  Button.filled(onPressed: import, child: Text("Import".tl)),
                 ],
               ).paddingHorizontal(16).paddingVertical(8),
             ],
@@ -532,9 +882,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
           ? SizedBox(
               width: 600,
               height: height,
-              child: const Center(
-                child: CircularProgressIndicator(),
-              ),
+              child: const Center(child: CircularProgressIndicator()),
             )
           : RadioGroup<int>(
               groupValue: type,
@@ -577,19 +925,20 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
                       type != 3 &&
                       type != 5)
                     CheckboxListTile(
-                        enabled: true,
-                        title: Text("Copy to app local path".tl),
-                        value: copyToLocalFolder,
-                        onChanged: (v) {
-                          setState(() {
-                            copyToLocalFolder = !copyToLocalFolder;
-                          });
-                        }).paddingHorizontal(8),
+                      enabled: true,
+                      title: Text("Copy to app local path".tl),
+                      value: copyToLocalFolder,
+                      onChanged: (v) {
+                        setState(() {
+                          copyToLocalFolder = !copyToLocalFolder;
+                        });
+                      },
+                    ).paddingHorizontal(8),
                   const SizedBox(height: 8),
                   Text(info).paddingHorizontal(24),
                 ],
               ),
-          ),
+            ),
       actions: [
         Button.text(
           child: Row(
@@ -605,14 +954,15 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
           ),
           onPressed: () {
             launchUrlString(
-                "https://github.com/venera-app/venera/blob/master/doc/import_comic.md");
+              "https://github.com/venera-app/venera/blob/master/doc/import_comic.md",
+            );
           },
         ).fixWidth(90).paddingRight(8),
         Button.filled(
           isLoading: loading,
           onPressed: selectAndImport,
           child: Text("Select".tl),
-        )
+        ),
       ],
     );
   }
@@ -624,7 +974,9 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
       loading = true;
     });
     var importer = ImportComic(
-        selectedFolder: selectedFolder, copyToLocal: copyToLocalFolder);
+      selectedFolder: selectedFolder,
+      copyToLocal: copyToLocalFolder,
+    );
     var result = switch (type) {
       0 => await importer.directory(true),
       1 => await importer.directory(false),
@@ -710,19 +1062,21 @@ class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
                 height: 56,
                 child: Row(
                   children: [
-                    Center(
-                      child: Text('Comic Source'.tl, style: ts.s18),
-                    ),
+                    Center(child: Text('Comic Source'.tl, style: ts.s18)),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 8),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.secondaryContainer,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child:
-                          Text(comicSources.length.toString(), style: ts.s12),
+                      child: Text(
+                        comicSources.length.toString(),
+                        style: ts.s12,
+                      ),
                     ),
                     const Spacer(),
                     const Icon(Icons.arrow_right),
@@ -738,10 +1092,13 @@ class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
                     children: comicSources.map((e) {
                       return Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
-                          color:
-                              Theme.of(context).colorScheme.secondaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.secondaryContainer,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(e),
@@ -751,35 +1108,33 @@ class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
                 ),
               if (_availableUpdates > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: context.colorScheme.outlineVariant,
-                      width: 0.6,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.update,
-                        color: context.colorScheme.primary,
-                        size: 20,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        "@c updates".tlParams({
-                          'c': _availableUpdates,
-                        }),
-                        style: ts.withColor(context.colorScheme.primary),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: context.colorScheme.outlineVariant,
+                          width: 0.6,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
-                  ),
-                )
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.update,
+                            color: context.colorScheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            "@c updates".tlParams({'c': _availableUpdates}),
+                            style: ts.withColor(context.colorScheme.primary),
+                          ),
+                        ],
+                      ),
+                    )
                     .toAlign(Alignment.centerLeft)
                     .paddingHorizontal(16)
                     .paddingBottom(8),
@@ -904,9 +1259,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: () {
-            context.to(
-              () => const ImageFavoritesPage()
-            );
+            context.to(() => const ImageFavoritesPage());
           },
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -915,17 +1268,18 @@ class _ImageFavoritesState extends State<ImageFavorites> {
                 height: 56,
                 child: Row(
                   children: [
-                    Center(
-                      child: Text('Image Favorites'.tl, style: ts.s18),
-                    ),
+                    Center(child: Text('Image Favorites'.tl, style: ts.s18)),
                     if (hasData)
                       Container(
                         margin: const EdgeInsets.symmetric(horizontal: 8),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
-                          color:
-                              Theme.of(context).colorScheme.secondaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.secondaryContainer,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -957,9 +1311,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
                   1 => imageFavoritesCompute!.authors,
                   2 => imageFavoritesCompute!.comics,
                   _ => [],
-                })
-                    .paddingHorizontal(16)
-                    .paddingBottom(16),
+                }).paddingHorizontal(16).paddingBottom(16),
             ],
           ),
         ),
@@ -987,8 +1339,9 @@ class _ImageFavoritesState extends State<ImageFavorites> {
         width: 96,
         padding: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          color:
-              displayType == type ? context.colorScheme.primaryContainer : null,
+          color: displayType == type
+              ? context.colorScheme.primaryContainer
+              : null,
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
             width: 0.6,
@@ -996,12 +1349,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
           borderRadius: BorderRadius.circular(radius),
         ),
         duration: const Duration(milliseconds: 200),
-        child: Center(
-          child: Text(
-            text,
-            style: ts.s16,
-          ),
-        ),
+        child: Center(child: Text(text, style: ts.s16)),
       ),
     );
   }
@@ -1012,9 +1360,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
     }
     var maxCount = data.map((e) => e.count).reduce((a, b) => a > b ? a : b);
     return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: 164,
-      ),
+      constraints: BoxConstraints(maxHeight: 164),
       child: SingleChildScrollView(
         child: Column(
           key: ValueKey(displayType),
@@ -1025,9 +1371,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
               maxCount: maxCount,
               enableTranslation: displayType != 2,
               onTap: (text) {
-                context.to(
-                  () => ImageFavoritesPage(initialKeyword: text),
-                );
+                context.to(() => ImageFavoritesPage(initialKeyword: text));
               },
             );
           }).toList(),
@@ -1098,11 +1442,7 @@ class __ChartLineState extends State<_ChartLine>
           onTap: () {
             widget.onTap?.call(widget.text);
           },
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          )
+          child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis)
               .paddingHorizontal(4)
               .toAlign(Alignment.centerLeft)
               .fixWidth(context.width > 600 ? 120 : 80)
@@ -1110,32 +1450,28 @@ class __ChartLineState extends State<_ChartLine>
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: LayoutBuilder(builder: (context, constrains) {
-            var width = constrains.maxWidth * widget.count / widget.maxCount;
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return Container(
-                  width: width * _controller.value,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(2),
-                    gradient: LinearGradient(
-                      colors: context.isDarkMode
-                          ? [
-                              Colors.blue.shade800,
-                              Colors.blue.shade500,
-                            ]
-                          : [
-                              Colors.blue.shade300,
-                              Colors.blue.shade600,
-                            ],
+          child: LayoutBuilder(
+            builder: (context, constrains) {
+              var width = constrains.maxWidth * widget.count / widget.maxCount;
+              return AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  return Container(
+                    width: width * _controller.value,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      gradient: LinearGradient(
+                        colors: context.isDarkMode
+                            ? [Colors.blue.shade800, Colors.blue.shade500]
+                            : [Colors.blue.shade300, Colors.blue.shade600],
+                      ),
                     ),
-                  ),
-                ).toAlign(Alignment.centerLeft);
-              },
-            );
-          }),
+                  ).toAlign(Alignment.centerLeft);
+                },
+              );
+            },
+          ),
         ),
         const SizedBox(width: 8),
         Text(
