@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/res.dart';
@@ -52,12 +53,12 @@ class ComicSourceManager with ChangeNotifier, Init {
   @override
   @protected
   Future<void> doInit() async {
-    await JsEngine().ensureInit();
     final path = "${App.dataPath}/comic_source";
     if (!(await Directory(path).exists())) {
-      Directory(path).create();
+      await Directory(path).create(recursive: true);
       return;
     }
+    await JsEngine().ensureInit();
     await for (var entity in Directory(path).list()) {
       if (entity is File && entity.path.endsWith(".js")) {
         try {
@@ -71,9 +72,57 @@ class ComicSourceManager with ChangeNotifier, Init {
         }
       }
     }
+    _sortSourcesByPreference();
+  }
+
+  void _sortSourcesByPreference() {
+    final raw = appdata.settings['comicSourceOrder'];
+    if (raw is! List) return;
+    final order = raw.whereType<String>().toList();
+    final positions = <String, int>{
+      for (var i = 0; i < order.length; i++) order[i]: i,
+    };
+    _sources.sort((a, b) {
+      final ai = positions[a.key];
+      final bi = positions[b.key];
+      if (ai == null && bi == null) {
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      }
+      if (ai == null) return 1;
+      if (bi == null) return -1;
+      return ai.compareTo(bi);
+    });
+  }
+
+  Future<void> reorder(String key, int newIndex) async {
+    final keys = _sources.map((source) => source.key).toList();
+    final oldIndex = keys.indexOf(key);
+    if (oldIndex < 0) return;
+    keys.removeAt(oldIndex);
+    if (newIndex > keys.length) newIndex = keys.length;
+    keys.insert(newIndex, key);
+    await setOrder(keys);
+  }
+
+  Future<void> sortByName() async {
+    final keys = _sources.map((source) => source.key).toList();
+    keys.sort((a, b) {
+      final left = find(a)?.name.toLowerCase() ?? a;
+      final right = find(b)?.name.toLowerCase() ?? b;
+      return left.compareTo(right);
+    });
+    await setOrder(keys);
+  }
+
+  Future<void> setOrder(List<String> keys) async {
+    appdata.settings['comicSourceOrder'] = List<String>.from(keys);
+    await appdata.saveData();
+    _sortSourcesByPreference();
+    notifyListeners();
   }
 
   Future reload() async {
+    await JsEngine().ensureInit();
     _sources.clear();
     JsEngine().runCode("ComicSource.sources = {};");
     await doInit();
@@ -94,6 +143,60 @@ class ComicSourceManager with ChangeNotifier, Init {
 
   /// Key is the source key, value is the version.
   final _availableUpdates = <String, String>{};
+
+  final _updateStates = <String, ComicSourceUpdateState>{};
+  final _activeUpdates = <String>{};
+  final _cancelRequestedUpdates = <String>{};
+
+  Map<String, ComicSourceUpdateState> get updateStates =>
+      Map.unmodifiable(_updateStates);
+
+  void setUpdateState(String key, ComicSourceUpdateState state) {
+    _updateStates[key] = state;
+    notifyListeners();
+  }
+
+  bool tryStartUpdate(String key) {
+    if (!_activeUpdates.add(key)) {
+      return false;
+    }
+    _cancelRequestedUpdates.remove(key);
+    _updateStates[key] = ComicSourceUpdateState.waiting;
+    notifyListeners();
+    return true;
+  }
+
+  void cancelUpdate(String key) {
+    if (_activeUpdates.contains(key)) {
+      _cancelRequestedUpdates.add(key);
+      notifyListeners();
+    }
+  }
+
+  bool isUpdateCancelled(String key) => _cancelRequestedUpdates.contains(key);
+
+  void finishUpdate(String key) {
+    _activeUpdates.remove(key);
+    _cancelRequestedUpdates.remove(key);
+    _updateStates.remove(key);
+    notifyListeners();
+  }
+
+  void clearUpdateState(String key) {
+    if (_updateStates.remove(key) != null) {
+      notifyListeners();
+    }
+  }
+
+  void replace(ComicSource source) {
+    final index = _sources.indexWhere((element) => element.key == source.key);
+    if (index < 0) {
+      _sources.add(source);
+    } else {
+      _sources[index] = source;
+    }
+    notifyListeners();
+  }
 
   void updateAvailableUpdates(Map<String, String> updates) {
     _availableUpdates.addAll(updates);
@@ -118,6 +221,16 @@ class ComicSourceManager with ChangeNotifier, Init {
   void notifyStateChange() {
     notifyListeners();
   }
+}
+
+enum ComicSourceUpdateState {
+  waiting,
+  downloading,
+  parsing,
+  writing,
+  success,
+  failed,
+  canceled,
 }
 
 class ComicSource {
@@ -298,34 +411,46 @@ class ComicSource {
 
   /// Get settings dynamically from JavaScript source.
   /// This allows sources to use getters for dynamic settings that can change at runtime.
+  static Map<String, Map<String, dynamic>> mergeDynamicSettings(
+    Map<String, Map<String, dynamic>>? fallback,
+    Map<dynamic, dynamic> dynamicSettings,
+  ) {
+    final newMap = <String, Map<String, dynamic>>{};
+    for (var e in dynamicSettings.entries) {
+      if (e.key is! String) {
+        continue;
+      }
+      final key = e.key as String;
+      if (e.value is Map) {
+        newMap[key] = <String, dynamic>{
+          for (var e2 in (e.value as Map).entries)
+            if (e2.key is String) e2.key as String: e2.value,
+        };
+        continue;
+      }
+
+      // Some sources replace a descriptor with a runtime scalar value.
+      // Keep the descriptor so the setting remains editable and visible.
+      final descriptor = fallback?[key];
+      if (descriptor != null) {
+        newMap[key] = <String, dynamic>{...descriptor, 'default': e.value};
+      }
+    }
+    return newMap;
+  }
+
   Map<String, Map<String, dynamic>>? getSettingsDynamic() {
     try {
       var value = JsEngine().runCode("ComicSource.sources.$key.settings");
       if (value is Map) {
-        var newMap = <String, Map<String, dynamic>>{};
-        for (var e in value.entries) {
-          if (e.key is! String) {
-            continue;
-          }
-          if (e.value is! Map) {
-            Log.warning(
-              "ComicSource",
-              "Ignoring malformed dynamic setting '${e.key}' for $key",
-            );
-            continue;
-          }
-          var v = <String, dynamic>{};
-          for (var e2 in e.value.entries) {
-            if (e2.key is! String) {
-              continue;
+        final newMap = mergeDynamicSettings(settings, value);
+        for (var setting in newMap.values) {
+          for (var entry in setting.entries) {
+            var v = entry.value;
+            if (v is JSInvokable) {
+              setting[entry.key] = JSAutoFreeFunction(v);
             }
-            var v2 = e2.value;
-            if (v2 is JSInvokable) {
-              v2 = JSAutoFreeFunction(v2);
-            }
-            v[e2.key] = v2;
           }
-          newMap[e.key] = v;
         }
         return newMap;
       }

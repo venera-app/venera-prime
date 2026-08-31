@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dio/io.dart';
 import 'package:venera/network/app_dio.dart';
 import 'package:venera/network/proxy.dart';
 import 'package:venera/utils/ext.dart';
+import 'package:venera/utils/io.dart';
 
 class FileDownloader {
   final String url;
@@ -18,6 +18,7 @@ class FileDownloader {
   int _lastBytes = 0;
 
   late int _fileSize;
+  bool _rangeSupported = true;
 
   final _dio = Dio();
 
@@ -28,6 +29,10 @@ class FileDownloader {
   int _kChunkSize = 16 * 1024 * 1024;
 
   bool _canceled = false;
+
+  Timer? _progressTimer;
+
+  final _activeDownloads = <Future<void>>{};
 
   late List<_DownloadBlock> _blocks;
 
@@ -43,7 +48,30 @@ class FileDownloader {
     }
 
     var lines = await file.readAsLines();
-    _blocks = lines.map((e) => _DownloadBlock.fromString(e)).toList();
+    try {
+      _blocks = lines.map((e) => _DownloadBlock.fromString(e)).toList();
+      if (_blocks.isEmpty ||
+          _blocks.any(
+            (block) =>
+                block.start < 0 ||
+                block.start >= block.end ||
+                block.end > _fileSize ||
+                block.downloadedBytes < 0 ||
+                block.downloadedBytes > block.end - block.start,
+          ) ||
+          _blocks.first.start != 0 ||
+          _blocks.last.end != _fileSize ||
+          _blocks.asMap().entries.any(
+            (entry) =>
+                entry.key > 0 &&
+                _blocks[entry.key - 1].end != entry.value.start,
+          )) {
+        throw const FormatException('Invalid download state');
+      }
+    } catch (_) {
+      await file.delete();
+      rethrow;
+    }
   }
 
   /// create file and write empty bytes
@@ -66,15 +94,27 @@ class FileDownloader {
 
   Future<void> _createTasks() async {
     var res = await _dio.head(url);
+    if (res.statusCode == null ||
+        res.statusCode! < 200 ||
+        res.statusCode! >= 400) {
+      throw Exception('Download HEAD failed with status ${res.statusCode}');
+    }
     var length = res.headers["content-length"]?.first;
-    _fileSize = length == null ? 0 : int.parse(length);
+    _fileSize = int.tryParse(length ?? '') ?? 0;
+    if (_fileSize <= 0) {
+      throw Exception('Download response has no valid Content-Length');
+    }
+    _rangeSupported =
+        res.headers.value('accept-ranges')?.toLowerCase() == 'bytes';
 
     await _prepareFile();
 
     if (File("$savePath.download").existsSync()) {
       await _readStatus();
-      _currentBytes = _blocks.fold<int>(0,
-          (previousValue, element) => previousValue + element.downloadedBytes);
+      _currentBytes = _blocks.fold<int>(
+        0,
+        (previousValue, element) => previousValue + element.downloadedBytes,
+      );
     } else {
       if (_fileSize > 1024 * 1024 * 1024) {
         _kChunkSize = 64 * 1024 * 1024;
@@ -117,7 +157,26 @@ class FileDownloader {
       // get file size
       await _createTasks();
 
-      if (_canceled) return;
+      if (_canceled) {
+        await _file?.close();
+        _file = null;
+        resultStream.close();
+        return;
+      }
+
+      if (!_rangeSupported) {
+        await _downloadSingleStream();
+        await _file?.close();
+        _file = null;
+        if (_canceled) {
+          resultStream.close();
+          return;
+        }
+        await File("$savePath.download").deleteIfExists();
+        resultStream.add(DownloadingStatus(_fileSize, _fileSize, 0, true));
+        resultStream.close();
+        return;
+      }
 
       // check if file is downloaded
       if (_currentBytes >= _fileSize) {
@@ -130,34 +189,51 @@ class FileDownloader {
 
       _reportStatus(resultStream);
 
-      Timer.periodic(const Duration(seconds: 1), (timer) {
+      _progressTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (_canceled || _currentBytes >= _fileSize) {
           timer.cancel();
           return;
         }
-        resultStream.add(DownloadingStatus(
-            _currentBytes, _fileSize, _currentBytes - _lastBytes));
+        resultStream.add(
+          DownloadingStatus(
+            _currentBytes,
+            _fileSize,
+            _currentBytes - _lastBytes,
+          ),
+        );
         _lastBytes = _currentBytes;
       });
 
       // start downloading
       await _scheduleDownload();
       if (_canceled) {
+        await _file?.close();
+        _file = null;
         resultStream.close();
         return;
       }
+      final complete =
+          _blocks.isNotEmpty &&
+          _blocks.every(
+            (block) => block.downloadedBytes == block.end - block.start,
+          );
       await _file!.close();
       _file = null;
-      await File("$savePath.download").delete();
+      final actualLength = await File(savePath).length();
 
       // check if download is finished
-      if (_currentBytes < _fileSize) {
-        resultStream
-            .addError(Exception("Download failed: Expected $_fileSize bytes, "
-                "but only $_currentBytes bytes downloaded."));
+      if (!complete || _currentBytes < _fileSize || actualLength != _fileSize) {
+        resultStream.addError(
+          Exception(
+            "Download failed: Expected $_fileSize bytes, "
+            "but only $_currentBytes bytes downloaded.",
+          ),
+        );
         resultStream.close();
+        return;
       }
 
+      await File("$savePath.download").delete();
       resultStream.add(DownloadingStatus(_currentBytes, _fileSize, 0, true));
       resultStream.close();
     } catch (e, s) {
@@ -165,6 +241,42 @@ class FileDownloader {
       _file = null;
       resultStream.addError(e, s);
       resultStream.close();
+    } finally {
+      _progressTimer?.cancel();
+      _progressTimer = null;
+    }
+  }
+
+  Future<void> _downloadSingleStream() async {
+    await _file?.close();
+    _file = null;
+    await File(savePath).deleteIfExists();
+    await File('$savePath.download').deleteIfExists();
+    final file = File(savePath);
+    await file.create(recursive: true);
+    _file = await file.open(mode: FileMode.write);
+    _currentBytes = 0;
+    final response = await _dio.get<ResponseBody>(
+      url,
+      options: Options(responseType: ResponseType.stream),
+    );
+    if (response.statusCode == null ||
+        response.statusCode! < 200 ||
+        response.statusCode! >= 300 ||
+        response.data == null) {
+      throw Exception(
+        'Single-stream download failed with status ${response.statusCode}',
+      );
+    }
+    await for (final chunk in response.data!.stream) {
+      if (_canceled) return;
+      await _file!.writeFrom(chunk);
+      _currentBytes += chunk.length;
+    }
+    if (_currentBytes != _fileSize) {
+      throw Exception(
+        'Download size mismatch: expected $_fileSize, got $_currentBytes',
+      );
     }
   }
 
@@ -175,18 +287,27 @@ class FileDownloader {
       if (tasks.length >= maxConcurrent) {
         await Future.any(tasks);
       }
-      final block = _blocks.firstWhereOrNull((element) =>
-          !element.downloading &&
-          element.end - element.start > element.downloadedBytes);
+      final block = _blocks.firstWhereOrNull(
+        (element) =>
+            !element.downloading &&
+            element.end - element.start > element.downloadedBytes,
+      );
       if (block == null) {
         break;
       }
       block.downloading = true;
       var task = _fetchBlock(block);
-      task.then((value) => tasks.remove(task), onError: (e) {
-        if(_canceled) return;
-        throw e;
-      });
+      _activeDownloads.add(task);
+      task.then(
+        (_) {
+          tasks.remove(task);
+          _activeDownloads.remove(task);
+        },
+        onError: (Object error, StackTrace stack) {
+          tasks.remove(task);
+          _activeDownloads.remove(task);
+        },
+      );
       tasks.add(task);
     }
     await Future.wait(tasks);
@@ -209,47 +330,78 @@ class FileDownloader {
       },
       preserveHeaderCase: true,
     );
-    var res = await _dio.get<ResponseBody>(url, options: options);
+    final res = await _dio.get<ResponseBody>(url, options: options);
     if (_canceled) return;
-    if (res.data == null) {
-      throw Exception("Failed to block $start-$end");
+    final expectedStart = start + block.downloadedBytes;
+    final expectedLength = end - expectedStart;
+    if (res.statusCode != 206 || res.data == null) {
+      throw Exception(
+        'Range request failed: expected 206, got ${res.statusCode}',
+      );
+    }
+    final range = res.headers.value('content-range');
+    final match = range == null
+        ? null
+        : RegExp(r'^bytes\s+(\d+)-(\d+)/(\d+|\*)$').firstMatch(range);
+    if (match == null ||
+        int.parse(match.group(1)!) != expectedStart ||
+        int.parse(match.group(2)!) != end - 1 ||
+        (match.group(3) != '*' && int.parse(match.group(3)!) != _fileSize)) {
+      throw Exception('Invalid Content-Range for block $expectedStart-$end');
+    }
+    final contentLength = res.headers.value('content-length');
+    if (contentLength != null &&
+        int.tryParse(contentLength) != expectedLength) {
+      throw Exception('Invalid Content-Length for block $expectedStart-$end');
     }
 
     var buffer = <int>[];
-    await for (var data in res.data!.stream) {
-      if (_canceled) return;
-      buffer.addAll(data);
-      if (buffer.length > 16 * 1024) {
-        if (_isWriting) continue;
-        _currentBytes += buffer.length;
-        _isWriting = true;
-        await _file!.setPosition(start + block.downloadedBytes);
+    var received = 0;
+    Future<void> flushBuffer() async {
+      if (buffer.isEmpty) return;
+      while (_isWriting) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      _isWriting = true;
+      try {
+        if (received + buffer.length > expectedLength) {
+          throw Exception('Range response exceeded requested length');
+        }
+        await _file!.setPosition(expectedStart + received);
         await _file!.writeFrom(buffer);
-        block.downloadedBytes += buffer.length;
-        buffer.clear();
+        received += buffer.length;
+        _currentBytes += buffer.length;
+        buffer = <int>[];
         await _writeStatus();
+      } finally {
         _isWriting = false;
       }
     }
 
-    if (buffer.isNotEmpty) {
-      while (_isWriting) {
-        await Future.delayed(const Duration(milliseconds: 10));
+    try {
+      await for (var data in res.data!.stream) {
+        if (_canceled) return;
+        buffer.addAll(data);
+        if (buffer.length >= 16 * 1024) await flushBuffer();
       }
-      _isWriting = true;
-      _currentBytes += buffer.length;
-      await _file!.setPosition(start + block.downloadedBytes);
-      await _file!.writeFrom(buffer);
-      block.downloadedBytes += buffer.length;
-      await _writeStatus();
-      _isWriting = false;
+      await flushBuffer();
+      if (received != expectedLength) {
+        throw Exception(
+          'Range response length mismatch: expected $expectedLength, got $received',
+        );
+      }
+      block.downloadedBytes += received;
+    } finally {
+      block.downloading = false;
     }
-
-    block.downloading = false;
   }
 
   Future<void> stop() async {
     _canceled = true;
+    await Future.wait(
+      List<Future<void>>.from(_activeDownloads),
+      eagerError: false,
+    );
     await _file?.close();
     _file = null;
   }
@@ -269,8 +421,11 @@ class DownloadingStatus {
   final int bytesPerSecond;
 
   const DownloadingStatus(
-      this.downloadedBytes, this.totalBytes, this.bytesPerSecond,
-      [this.isFinished = false]);
+    this.downloadedBytes,
+    this.totalBytes,
+    this.bytesPerSecond, [
+    this.isFinished = false,
+  ]);
 
   @override
   String toString() {
@@ -292,8 +447,8 @@ class _DownloadBlock {
   }
 
   _DownloadBlock.fromString(String str)
-      : start = int.parse(str.split("-")[0]),
-        end = int.parse(str.split("-")[1]),
-        downloadedBytes = int.parse(str.split("-")[2]),
-        downloading = false;
+    : start = int.parse(str.split("-")[0]),
+      end = int.parse(str.split("-")[1]),
+      downloadedBytes = int.parse(str.split("-")[2]),
+      downloading = false;
 }

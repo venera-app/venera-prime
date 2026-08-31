@@ -54,6 +54,27 @@ class _AppSettingsState extends State<AppSettings> {
             }
           },
         ).toSliver(),
+        _CallbackSetting(
+          title: "Refresh local library".tl,
+          callback: () async {
+            var loading = showLoadingDialog(
+              context,
+              barrierDismissible: false,
+              allowCancel: false,
+            );
+            final result = await LocalManager().refresh();
+            loading.close();
+            if (context.mounted) {
+              context.showMessage(
+                message: "Found @found comics, @missing missing".tlParams({
+                  'found': result.discovered,
+                  'missing': result.missing,
+                }),
+              );
+            }
+          },
+          actionTitle: "Refresh".tl,
+        ).toSliver(),
         ListTile(
           title: Text("Cache Size".tl),
           subtitle: Text(bytesToReadableString(CacheManager().currentSize)),
@@ -137,6 +158,11 @@ class _AppSettingsState extends State<AppSettings> {
             showPopUpWidget(context, const _WebdavSetting());
           },
           actionTitle: 'Set'.tl,
+        ).toSliver(),
+        _CallbackSetting(
+          title: "Reading statistics".tl,
+          callback: () => context.to(() => const ReadingStatisticsPage()),
+          actionTitle: "Open".tl,
         ).toSliver(),
         _CallbackSetting(
           title: "WebDAV config QR code".tl,

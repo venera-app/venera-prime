@@ -173,6 +173,58 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
+        SelectSetting(
+          title: 'Reader background'.tl,
+          settingKey: 'readerBackground',
+          optionTranslation: {
+            'theme': 'Theme'.tl,
+            'white': 'White'.tl,
+            'gray': 'Gray'.tl,
+            'black': 'Black'.tl,
+            'sepia': 'Sepia'.tl,
+          },
+          onChanged: () => widget.onChanged?.call('readerBackground'),
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        SelectSetting(
+          title: 'Night mode'.tl,
+          settingKey: 'readerNightMode',
+          optionTranslation: {
+            'none': 'Off'.tl,
+            'warm': 'Warm'.tl,
+            'dark': 'Dark'.tl,
+            'red': 'Red'.tl,
+          },
+          onChanged: () {
+            setState(() {});
+            widget.onChanged?.call('readerNightMode');
+          },
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        SliverAnimatedVisibility(
+          visible:
+              appdata.settings.getReaderSetting(
+                widget.comicId ?? '',
+                widget.comicSource ?? 'global',
+                'readerNightMode',
+              ) !=
+              'none',
+          child: _SliderSetting(
+            title: 'Night mode intensity'.tl,
+            settingsIndex: 'readerNightModeIntensity',
+            interval: 0.05,
+            min: 0.0,
+            max: 0.8,
+            onChanged: () => widget.onChanged?.call('readerNightModeIntensity'),
+            comicId: isEnabledSpecificSettings ? widget.comicId : null,
+            comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+            useDeviceSettings: useDeviceSpecificSettings,
+          ),
+        ),
         _SwitchSetting(
           title: "Reverse tap to turn Pages".tl,
           settingKey: "reverseTapToTurnPages",
@@ -449,9 +501,25 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
         _SwitchSetting(
+          title: "Remove from Read Later when complete".tl,
+          settingKey: "removeReadLaterOnComplete",
+          onChanged: () => widget.onChanged?.call("removeReadLaterOnComplete"),
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        _SwitchSetting(
           title: "Show Chapter Comments".tl,
           settingKey: "showChapterComments",
           onChanged: _onShowChapterCommentsChanged,
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        _SwitchSetting(
+          title: "Hide Duplicate Chapters".tl,
+          settingKey: "hideDuplicateChapters",
+          onChanged: () => widget.onChanged?.call("hideDuplicateChapters"),
           comicId: isEnabledSpecificSettings ? widget.comicId : null,
           comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
           useDeviceSettings: useDeviceSpecificSettings,

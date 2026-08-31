@@ -27,9 +27,24 @@ class IO {
 class FilePath {
   const FilePath._();
 
-  static String join(String path1, String path2,
-      [String? path3, String? path4, String? path5]) {
+  static String join(
+    String path1,
+    String path2, [
+    String? path3,
+    String? path4,
+    String? path5,
+  ]) {
     return p.join(path1, path2, path3, path4, path5);
+  }
+}
+
+bool _isCacheChild(String candidate) {
+  try {
+    final root = p.canonicalize(App.cachePath);
+    final target = p.canonicalize(candidate);
+    return target != root && p.isWithin(root, target);
+  } catch (_) {
+    return false;
   }
 }
 
@@ -161,6 +176,12 @@ String sanitizeFileName(String fileName, {String? dir, int? maxLength}) {
 Future<void> copyDirectory(Directory source, Directory destination) async {
   List<FileSystemEntity> contents = source.listSync();
   for (FileSystemEntity content in contents) {
+    if (FileSystemEntity.typeSync(content.path, followLinks: false) ==
+        FileSystemEntityType.link) {
+      throw const FileSystemException(
+        'Refusing to copy a symbolic link from an archive',
+      );
+    }
     String newPath = FilePath.join(destination.path, content.name);
 
     if (content is File) {
@@ -171,7 +192,7 @@ Future<void> copyDirectory(Directory source, Directory destination) async {
     } else if (content is Directory) {
       Directory newDirectory = Directory(newPath);
       newDirectory.createSync();
-      copyDirectory(content.absolute, newDirectory.absolute);
+      await copyDirectory(content.absolute, newDirectory.absolute);
     }
   }
 }
@@ -179,7 +200,9 @@ Future<void> copyDirectory(Directory source, Directory destination) async {
 /// Copy the **contents** of the source directory to the destination directory.
 /// This function is executed in an isolate to prevent the UI from freezing.
 Future<void> copyDirectoryIsolate(
-    Directory source, Directory destination) async {
+  Directory source,
+  Directory destination,
+) async {
   await Isolate.run(() => overrideIO(() => copyDirectory(source, destination)));
 }
 
@@ -202,7 +225,7 @@ class DirectoryPicker {
   DirectoryPicker();
 
   static final _finalizer = Finalizer<String>((path) {
-    if (path.startsWith(App.cachePath)) {
+    if (_isCacheChild(path)) {
       Directory(path).deleteIgnoreError();
     }
     if (App.isIOS || App.isMacOS) {
@@ -232,8 +255,9 @@ class DirectoryPicker {
         }
       } else {
         // ios, macos
-        directory =
-            await _methodChannel.invokeMethod<String?>("getDirectoryPath");
+        directory = await _methodChannel.invokeMethod<String?>(
+          "getDirectoryPath",
+        );
       }
       if (directory == null) return null;
       _finalizer.attach(this, directory);
@@ -328,8 +352,11 @@ Future<String?> selectDirectoryIOS() async {
   return IOSDirectoryPicker.selectDirectory();
 }
 
-Future<void> saveFile(
-    {Uint8List? data, required String filename, File? file}) async {
+Future<void> saveFile({
+  Uint8List? data,
+  required String filename,
+  File? file,
+}) async {
   if (data == null && file == null) {
     throw Exception("data and file cannot be null at the same time");
   }
@@ -394,10 +421,7 @@ final class _IOOverrides extends IOOverrides {
 }
 
 T overrideIO<T>(T Function() f) {
-  return IOOverrides.runWithIOOverrides<T>(
-    f,
-    _IOOverrides(),
-  );
+  return IOOverrides.runWithIOOverrides<T>(f, _IOOverrides());
 }
 
 class Share {
@@ -407,20 +431,22 @@ class Share {
     required String mime,
   }) {
     if (!App.isWindows) {
-      s.Share.shareXFiles(
-        [s.XFile.fromData(data, mimeType: mime)],
-        fileNameOverrides: [filename],
+      s.SharePlus.instance.share(
+        s.ShareParams(
+          files: [s.XFile.fromData(data, mimeType: mime)],
+          fileNameOverrides: [filename],
+        ),
       );
     } else {
       // write to cache
       var file = File(FilePath.join(App.cachePath, filename));
       file.writeAsBytesSync(data);
-      s.Share.shareXFiles([s.XFile(file.path)]);
+      s.SharePlus.instance.share(s.ShareParams(files: [s.XFile(file.path)]));
     }
   }
 
   static void shareText(String text) {
-    s.Share.share(text);
+    s.SharePlus.instance.share(s.ShareParams(text: text));
   }
 }
 
@@ -440,7 +466,7 @@ class FileSelectResult {
   final String path;
 
   static final _finalizer = Finalizer<String>((path) {
-    if (path.startsWith(App.cachePath)) {
+    if (_isCacheChild(path)) {
       File(path).deleteIgnoreError();
     }
   });

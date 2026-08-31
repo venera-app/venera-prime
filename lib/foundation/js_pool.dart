@@ -8,7 +8,7 @@ import 'package:venera/foundation/log.dart';
 class JSPool {
   static final int _maxInstances = 4;
   final List<IsolateJsEngine> _instances = [];
-  bool _isInitializing = false;
+  Future<void>? _initialization;
 
   static final JSPool _singleton = JSPool._internal();
   factory JSPool() {
@@ -16,15 +16,14 @@ class JSPool {
   }
   JSPool._internal();
 
-  Future<void> init() async {
-    if (_isInitializing) return;
-    _isInitializing = true;
+  Future<void> init() => _initialization ??= _initialize();
+
+  Future<void> _initialize() async {
     var jsInitBuffer = await rootBundle.load("assets/init.js");
     var jsInit = jsInitBuffer.buffer.asUint8List();
     for (int i = 0; i < _maxInstances; i++) {
       _instances.add(IsolateJsEngine(jsInit));
     }
-    _isInitializing = false;
   }
 
   Future<dynamic> execute(String jsFunction, List<dynamic> args) async {
@@ -50,6 +49,8 @@ class _IsolateJsEngineInitParam {
 class IsolateJsEngine {
   Isolate? _isolate;
 
+  late final Future<Isolate> _spawnFuture;
+
   SendPort? _sendPort;
   ReceivePort? _receivePort;
 
@@ -63,7 +64,24 @@ class IsolateJsEngine {
   IsolateJsEngine(Uint8List jsInit) {
     _receivePort = ReceivePort();
     _receivePort!.listen(_onMessage);
-    Isolate.spawn(_run, _IsolateJsEngineInitParam(_receivePort!.sendPort, jsInit));
+    _spawnFuture = Isolate.spawn(
+      _run,
+      _IsolateJsEngineInitParam(_receivePort!.sendPort, jsInit),
+    );
+    unawaited(_captureIsolate());
+  }
+
+  Future<void> _captureIsolate() async {
+    try {
+      _isolate = await _spawnFuture;
+    } catch (e, s) {
+      Log.error("IsolateJsEngine", "Failed to spawn JS isolate: $e", s);
+      for (var completer in _tasks.values) {
+        completer.completeError(e, s);
+      }
+      _tasks.clear();
+      close();
+    }
   }
 
   void _onMessage(dynamic message) {
@@ -96,8 +114,7 @@ class IsolateJsEngine {
     try {
       JsEngine.cacheJsInit(params.jsInit);
       await engine.init();
-    }
-    catch(e, s) {
+    } catch (e, s) {
       sendPort.send(Exception("Failed to initialize JS engine: $e\n$s"));
       return;
     }
@@ -106,7 +123,9 @@ class IsolateJsEngine {
         try {
           final jsFunc = engine.runCode(message.jsFunction);
           if (jsFunc is! JSInvokable) {
-            throw Exception("The provided code does not evaluate to a function.");
+            throw Exception(
+              "The provided code does not evaluate to a function.",
+            );
           }
           final result = jsFunc.invoke(message.args);
           jsFunc.free();
@@ -119,6 +138,7 @@ class IsolateJsEngine {
   }
 
   Future<dynamic> execute(String jsFunction, List<dynamic> args) async {
+    await _spawnFuture;
     if (_isClosed) {
       throw Exception("IsolateJsEngine is closed.");
     }

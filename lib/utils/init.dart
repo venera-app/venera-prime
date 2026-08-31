@@ -5,36 +5,27 @@ import 'package:flutter/foundation.dart';
 /// A mixin class that provides a way to ensure the class is initialized.
 abstract mixin class Init {
   bool _isInit = false;
-
-  final _initCompleter = <Completer<void>>[];
+  Future<void>? _initializing;
 
   /// Ensure the class is initialized.
-  Future<void> ensureInit() async {
-    if (_isInit) {
-      return;
-    }
-    var completer = Completer<void>();
-    _initCompleter.add(completer);
-    return completer.future;
+  Future<void> ensureInit() {
+    if (_isInit) return Future.value();
+    return _initializing ??= _initialize();
   }
 
-  Future<void> _markInit() async {
-    _isInit = true;
-    for (var completer in _initCompleter) {
-      completer.complete();
+  Future<void> _initialize() async {
+    try {
+      await doInit();
+      _isInit = true;
+    } catch (_) {
+      _initializing = null;
+      rethrow;
     }
-    _initCompleter.clear();
   }
 
   @protected
   Future<void> doInit();
 
   /// Initialize the class.
-  Future<void> init() async {
-    if (_isInit) {
-      return;
-    }
-    await doInit();
-    await _markInit();
-  }
+  Future<void> init() => ensureInit();
 }

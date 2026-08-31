@@ -34,12 +34,50 @@ extension _FutureInit<T> on Future<T> {
   }
 }
 
-Future<void> init() async {
-  await App.init().wait();
-  await SingleInstanceCookieJar.createInstance();
+class InitializationFailure {
+  final String stage;
+  final Object error;
+  final StackTrace stackTrace;
+
+  const InitializationFailure({
+    required this.stage,
+    required this.error,
+    required this.stackTrace,
+  });
+}
+
+Future<InitializationFailure?> init() async {
+  try {
+    await App.init();
+  } catch (e, s) {
+    Log.error("core init", "$e\n$s");
+    return InitializationFailure(
+      stage: "application storage",
+      error: e,
+      stackTrace: s,
+    );
+  }
+
+  try {
+    await SingleInstanceCookieJar.createInstance();
+  } catch (e, s) {
+    Log.error("cookie init", "$e\n$s");
+  }
+
+  try {
+    await App.initComponents();
+  } catch (e, s) {
+    Log.error("core init", "$e\n$s");
+    App.closeComponents();
+    return InitializationFailure(
+      stage: "core databases",
+      error: e,
+      stackTrace: s,
+    );
+  }
+
   try {
     var futures = [
-      App.initComponents(),
       AppTranslation.init().wait(),
       TagsTranslation.readData().wait(),
       OpenCC.init(),
@@ -70,6 +108,7 @@ Future<void> init() async {
       methodChannel.invokeMethod("heartBeat");
     });
   }
+  return null;
 }
 
 Future<void> _initComicSources() async {

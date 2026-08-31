@@ -22,6 +22,31 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       context.reader.mode == ReaderMode.galleryRightToLeft ||
       context.reader.mode == ReaderMode.continuousRightToLeft;
 
+  Color? _nightOverlay(BuildContext context) {
+    final mode = appdata.settings.getReaderSetting(
+      context.reader.cid,
+      context.reader.type.sourceKey,
+      'readerNightMode',
+    );
+    if (mode == null || mode == 'none') return null;
+    final intensity =
+        (appdata.settings.getReaderSetting(
+                  context.reader.cid,
+                  context.reader.type.sourceKey,
+                  'readerNightModeIntensity',
+                )
+                as num?)
+            ?.toDouble()
+            .clamp(0.0, 0.8) ??
+        0.25;
+    final color = switch (mode) {
+      'warm' => Colors.orange,
+      'red' => Colors.red,
+      _ => Colors.black,
+    };
+    return color.withValues(alpha: intensity);
+  }
+
   int showFloatingButtonValue = 0;
 
   var lastValue = 0;
@@ -132,13 +157,26 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         Positioned.fill(
           child: AbsorbPointer(
             absorbing: context.reader.isPageAnimating,
-            child: widget.child,
+            child: ColoredBox(
+              color: readerBackgroundColor(
+                context,
+                context.reader.cid,
+                context.reader.type.sourceKey,
+              ),
+              child: widget.child,
+            ),
           ),
         ),
-        if (appdata.settings['showPageNumberInReader'] == true && !isOnChapterCommentsPage)
+        if (_nightOverlay(context) != null)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(color: _nightOverlay(context)!),
+            ),
+          ),
+        if (appdata.settings['showPageNumberInReader'] == true &&
+            !isOnChapterCommentsPage)
           buildPageInfoText(),
-        if (!isOnChapterCommentsPage)
-          buildStatusInfo(),
+        if (!isOnChapterCommentsPage) buildStatusInfo(),
         AnimatedPositioned(
           duration: const Duration(milliseconds: 180),
           right: 16,
@@ -167,10 +205,9 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   Widget buildTop() {
-    final epName =
-      context.reader.widget.chapters?.titles.elementAtOrNull(
-        context.reader.chapter - 1,
-      );
+    final epName = context.reader.widget.chapters?.titles.elementAtOrNull(
+      context.reader.chapter - 1,
+    );
 
     return BlurEffect(
       child: Container(
@@ -178,10 +215,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         decoration: BoxDecoration(
           color: context.colorScheme.surface.toOpacity(0.92),
           border: Border(
-            bottom: BorderSide(
-              color: Colors.grey.toOpacity(0.5),
-              width: 0.5,
-            ),
+            bottom: BorderSide(color: Colors.grey.toOpacity(0.5), width: 0.5),
           ),
         ),
         child: Padding(
@@ -535,10 +569,11 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                   for (var button in buttons)
                     if (!small)
                       button.paddingHorizontal(4)
-                    else
-                      ...[button, const Spacer()],
-                  if (!small)
-                    const SizedBox(width: 4),
+                    else ...[
+                      button,
+                      const Spacer(),
+                    ],
+                  if (!small) const SizedBox(width: 4),
                 ],
               );
             },
@@ -581,9 +616,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       focusNode: sliderFocus,
       value: displayPage.toDouble(),
       min: 1,
-      max: context.reader.maxPage
-          .clamp(displayPage, 1 << 16)
-          .toDouble(),
+      max: context.reader.maxPage.clamp(displayPage, 1 << 16).toDouble(),
       reversed: isReversed,
       divisions: (context.reader.maxPage - 1).clamp(2, 1 << 16),
       onChanged: (i) {
@@ -710,7 +743,8 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           if (key == "quickCollectImage") {
             addDragListener();
           }
-          if (key == "showChapterComments" || key == "showChapterCommentsAtEnd") {
+          if (key == "showChapterComments" ||
+              key == "showChapterCommentsAtEnd") {
             update();
           }
           context.reader.update();
@@ -819,10 +853,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               borderRadius: BorderRadius.circular(16),
               child: Center(
                 child: Icon(
-                  _getArrowIcon(
-                    isReversed,
-                    showFloatingButtonValue,
-                  ),
+                  _getArrowIcon(isReversed, showFloatingButtonValue),
                   size: 24,
                   color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
@@ -836,9 +867,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
   IconData _getArrowIcon(bool reversed, int value) {
     if (reversed) {
-      return value == 1 ? Icons.arrow_back_ios_outlined : Icons.arrow_forward_ios;
+      return value == 1
+          ? Icons.arrow_back_ios_outlined
+          : Icons.arrow_forward_ios;
     } else {
-      return value == 1 ? Icons.arrow_forward_ios : Icons.arrow_back_ios_outlined;
+      return value == 1
+          ? Icons.arrow_forward_ios
+          : Icons.arrow_back_ios_outlined;
     }
   }
 

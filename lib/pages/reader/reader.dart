@@ -29,6 +29,8 @@ import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/read_later.dart';
+import 'package:venera/foundation/reading_statistics.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/images.dart';
@@ -41,6 +43,8 @@ import 'package:venera/utils/io.dart';
 import 'package:venera/utils/opencc.dart';
 import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
+import 'package:venera/utils/chapter_visibility.dart';
+import 'package:venera/utils/reader_appearance.dart';
 import 'package:venera/utils/volume.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -110,7 +114,12 @@ class Reader extends StatefulWidget {
 }
 
 class _ReaderState extends State<Reader>
-    with _ReaderLocation, _ReaderWindow, _VolumeListener, _ImagePerPageHandler {
+    with
+        _ReaderLocation,
+        _ReaderWindow,
+        _VolumeListener,
+        _ImagePerPageHandler,
+        WidgetsBindingObserver {
   @override
   void update() {
     setState(() {});
@@ -188,11 +197,19 @@ class _ReaderState extends State<Reader>
   bool _showWhiteRefreshOverlay = false;
   Timer? _whiteRefreshOverlayTimer;
   bool _whiteRefreshOverlayReady = false;
+  DateTime? _readingSessionStarted;
+  bool _markedComplete = false;
 
   var focusNode = FocusNode();
 
   @override
   void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _readingSessionStarted = DateTime.now();
+    mode = ReaderMode.fromKey(
+      appdata.settings.getReaderSetting(cid, type.sourceKey, 'readerMode'),
+    );
     page = widget.initialPage ?? 1;
     if (page < 1) {
       page = 1;
@@ -212,10 +229,6 @@ class _ReaderState extends State<Reader>
         page = 1;
       }
     }
-    // mode = ReaderMode.fromKey(appdata.settings['readerMode']);
-    mode = ReaderMode.fromKey(
-      appdata.settings.getReaderSetting(cid, type.sourceKey, 'readerMode'),
-    );
     history = widget.history;
     if (!appdata.settings.getReaderSetting(
       cid,
@@ -235,7 +248,6 @@ class _ReaderState extends State<Reader>
     Future.delayed(const Duration(milliseconds: 200), () {
       LocalFavoritesManager().onRead(cid, type);
     });
-    super.initState();
   }
 
   bool _isInitialized = false;
@@ -280,6 +292,8 @@ class _ReaderState extends State<Reader>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _commitReadingSession();
     if (isFullscreen) {
       fullscreen();
     }
@@ -294,6 +308,48 @@ class _ReaderState extends State<Reader>
     PaintingBinding.instance.imageCache.maximumSizeBytes = 100 << 20;
     disposeReaderWindow();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _commitReadingSession();
+    } else if (state == AppLifecycleState.resumed &&
+        _readingSessionStarted == null) {
+      _readingSessionStarted = DateTime.now();
+    }
+  }
+
+  void _commitReadingSession() {
+    final started = _readingSessionStarted;
+    _readingSessionStarted = null;
+    if (started == null || images == null || images!.isEmpty) return;
+    ReadingStatisticsManager().recordSession(
+      comic: widget.history,
+      startedAt: started,
+      endedAt: DateTime.now(),
+    );
+  }
+
+  void _markReadLaterComplete() {
+    if (_markedComplete ||
+        appdata.settings.getReaderSetting(
+              cid,
+              type.sourceKey,
+              'removeReadLaterOnComplete',
+            ) !=
+            true ||
+        isOnChapterCommentsPage ||
+        images == null ||
+        images!.isEmpty ||
+        page < maxPage ||
+        chapter < maxChapter) {
+      return;
+    }
+    _markedComplete = true;
+    ReadLaterManager().remove(cid, type);
   }
 
   @override
@@ -347,6 +403,7 @@ class _ReaderState extends State<Reader>
   void onPageChanged() {
     flashWhiteScreenOnPageTurn();
     updateHistory();
+    _markReadLaterComplete();
   }
 
   void flashWhiteScreenOnPageTurn() {
