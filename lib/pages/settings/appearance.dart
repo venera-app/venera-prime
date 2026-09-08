@@ -13,6 +13,12 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
     return SmoothCustomScrollView(
       slivers: [
         SliverAppbar(title: Text("Appearance".tl)),
+        ListTile(
+          leading: const Icon(Icons.dashboard_customize_outlined),
+          title: Text('Customize home'.tl),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.to(() => const HomeLayoutPage()),
+        ).toSliver(),
         SelectSetting(
           title: "Theme Mode".tl,
           settingKey: "theme_mode",

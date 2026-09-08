@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -94,7 +95,10 @@ class _AppWebviewState extends State<AppWebview> {
 
   Future<bool> _createWebviewEnvironment() async {
     var proxy = appdata.settings['proxy']?.toString() ?? 'system';
-    if (await WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+    // WebViewFeature and ProxyController are Android-only plugin APIs.
+    // WKWebView uses the platform network configuration on iOS/macOS.
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        await WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
       final proxyController = ProxyController.instance();
       await proxyController.clearProxyOverride();
       if (proxy != "system" && proxy != "direct") {

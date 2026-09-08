@@ -116,16 +116,27 @@ class _AppSettingsState extends State<AppSettings> {
         ).toSliver(),
         _CallbackSetting(
           title: "Export App Data".tl,
+          subtitle:
+              "Backups contain passwords, tokens and cookies. Store them securely and do not share them."
+                  .tl,
           callback: () async {
             var controller = showLoadingDialog(context);
-            var file = await exportAppData(false);
-            await saveFile(filename: "data.venera", file: file);
-            controller.close();
+            File? file;
+            try {
+              file = await exportAppData(false);
+              await saveFile(filename: "data.venera", file: file);
+            } finally {
+              await file?.deleteIgnoreError();
+              controller.close();
+            }
           },
           actionTitle: 'Export'.tl,
         ).toSliver(),
         _CallbackSetting(
           title: "Import App Data".tl,
+          subtitle:
+              "Import only trusted backups. Saved accounts and login sessions will be restored."
+                  .tl,
           callback: () async {
             var controller = showLoadingDialog(context);
             var file = await selectFile(ext: ['venera', 'picadata']);
@@ -154,6 +165,9 @@ class _AppSettingsState extends State<AppSettings> {
         ).toSliver(),
         _CallbackSetting(
           title: "Data Sync".tl,
+          subtitle:
+              "WebDAV sync includes source accounts and cookies. Use a trusted HTTPS server."
+                  .tl,
           callback: () async {
             showPopUpWidget(context, const _WebdavSetting());
           },

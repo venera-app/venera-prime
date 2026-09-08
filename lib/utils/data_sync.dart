@@ -127,12 +127,12 @@ class DataSync with ChangeNotifier {
         adapter: RHttpAdapter(),
       );
 
+      File? backupFile;
       try {
         appdata.settings['dataVersion']++;
         await appdata.saveData(false);
-        var data = await exportAppData(
-          appdata.settings['disableSyncFields']?.toString().isNotEmpty ?? false,
-        );
+        var data = await exportAppData(true);
+        backupFile = data;
         var time = (DateTime.now().millisecondsSinceEpoch ~/ 86400000)
             .toString();
         var filename = time;
@@ -150,13 +150,14 @@ class DataSync with ChangeNotifier {
           await client.remove(files.first.name!);
         }
         await client.write(filename, await data.readAsBytes());
-        data.deleteIgnoreError();
         Log.info("Upload Data", "Data uploaded successfully");
         return const Res(true);
       } catch (e, s) {
         Log.error("Upload Data", e, s);
         _lastError = e.toString();
         return Res.error(e.toString());
+      } finally {
+        await backupFile?.deleteIgnoreError();
       }
     } finally {
       _isUploading = false;
@@ -194,6 +195,7 @@ class DataSync with ChangeNotifier {
         adapter: RHttpAdapter(),
       );
 
+      Directory? downloadDirectory;
       try {
         var files = await client.readDir('/');
         files.sort((a, b) => b.name!.compareTo(a.name!));
@@ -214,16 +216,22 @@ class DataSync with ChangeNotifier {
           }
         }
         Log.info("Data Sync", "Downloading data from WebDAV server");
-        var localFile = File(FilePath.join(App.cachePath, file.name!));
+        downloadDirectory = await Directory(
+          App.cachePath,
+        ).createTemp('webdav-');
+        var localFile = File(
+          FilePath.join(downloadDirectory.path, 'backup.venera'),
+        );
         await client.read2File(file.name!, localFile.path);
         await importAppData(localFile, true);
-        await localFile.delete();
         Log.info("Data Sync", "Data downloaded successfully");
         return const Res(true);
       } catch (e, s) {
         Log.error("Data Sync", e, s);
         _lastError = e.toString();
         return Res.error(e.toString());
+      } finally {
+        await downloadDirectory?.deleteIgnoreError(recursive: true);
       }
     } finally {
       _isDownloading = false;

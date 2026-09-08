@@ -17,6 +17,7 @@ import 'package:venera/utils/io.dart';
 import 'package:venera/utils/archive_security.dart';
 
 import 'file_downloader.dart';
+import 'download_page.dart';
 
 abstract class DownloadTask with ChangeNotifier {
   /// 0-1
@@ -593,6 +594,14 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     _isError = false;
     _message = "Resuming...";
     _isRunning = true;
+    await _cancelPendingDownloads();
+    if (!_isRunning) return;
+    tasks.clear();
+    // Serialized cursors may already be past failed pages (or the last
+    // chapter). Re-scan disk and reuse successful pages on every resume.
+    _chapter = 0;
+    _index = 0;
+    _skippedImageCount = 0;
     notifyListeners();
     runRecorder();
 
@@ -753,6 +762,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     _message = _formatDownloadProgressMessage();
     notifyListeners();
 
+    if (!_isRunning) return;
+
     while (_chapter < _images!.length) {
       var images = _images![_images!.keys.elementAt(_chapter)]!;
       var saveTo = _currentSaveDirectory();
@@ -764,7 +775,6 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       while (_index < images.length) {
         if (downloadedPages.contains(_index)) {
           _index++;
-          _downloadedCount++;
           _message = _formatDownloadProgressMessage();
           await LocalManager().saveCurrentDownloadingTasks();
           continue;
@@ -1004,7 +1014,7 @@ class _ImageDownloadWrapper {
         if (p.imageBytes != null) {
           var fileType = detectFileType(p.imageBytes!);
           var file = saveTo.joinFile("$index${fileType.ext}");
-          var pendingWrite = file.writeAsBytes(p.imageBytes!);
+          var pendingWrite = writeDownloadedPage(file, index, p.imageBytes!);
           _pendingWrite = pendingWrite;
           try {
             await pendingWrite;

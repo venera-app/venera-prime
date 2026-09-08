@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:sqlite3/sqlite3.dart';
+import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -12,39 +13,11 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/read_later.dart';
 import 'package:venera/foundation/reading_statistics.dart';
 import 'package:venera/utils/archive_security.dart';
+import 'package:venera/utils/restore_files.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
 import 'io.dart';
-
-Object? _redactSourceSecrets(Object? value) {
-  if (value is Map) {
-    final result = <String, dynamic>{};
-    for (final entry in value.entries) {
-      final key = entry.key.toString();
-      final normalized = key.toLowerCase().replaceAll('-', '_');
-      final compact = normalized.replaceAll('_', '');
-      if (compact == 'account' ||
-          compact == 'password' ||
-          compact == 'passwd' ||
-          compact == 'pwd' ||
-          compact == 'token' ||
-          compact == 'authorization' ||
-          compact == 'cookie' ||
-          compact == 'apikey' ||
-          compact.contains('token') ||
-          compact.contains('secret')) {
-        continue;
-      }
-      result[key] = _redactSourceSecrets(entry.value);
-    }
-    return result;
-  }
-  if (value is List) {
-    return value.map(_redactSourceSecrets).toList();
-  }
-  return value;
-}
 
 String _safeImportedTable(String name) {
   if (name.isEmpty ||
@@ -56,8 +29,7 @@ String _safeImportedTable(String name) {
 }
 
 Future<File> exportAppData([bool sync = true]) async {
-  // Always materialize the redacted sync snapshot. Manual backups must not
-  // accidentally fall back to the full settings file.
+  // Manual backups include migration settings; sync keeps device-local fields.
   await appdata.saveData(false);
   var time = DateTime.now().microsecondsSinceEpoch;
   var cacheFilePath = FilePath.join(App.cachePath, '$time.venera');
@@ -66,75 +38,104 @@ Future<File> exportAppData([bool sync = true]) async {
   if (await cacheFile.exists()) {
     await cacheFile.delete();
   }
-  await Isolate.run(() {
-    var zipFile = ZipFile.open(cacheFilePath);
-    final manifestFiles = <String>[];
-    Uint8List readStableFile(String path) {
-      Object? lastError;
-      for (var attempt = 0; attempt < 5; attempt++) {
-        try {
-          return File(path).readAsBytesSync();
-        } catch (error) {
-          lastError = error;
-          sleep(const Duration(milliseconds: 20));
-        }
-      }
-      throw lastError ?? StateError('Unable to read $path');
-    }
-
-    void addStableFile(String name, String path, {bool optional = false}) {
-      if (!File(path).existsSync()) {
-        if (optional) return;
-        throw StateError('Backup file does not exist: $path');
-      }
-      zipFile.addFileFromBytes(name, readStableFile(path));
-      manifestFiles.add(name);
-    }
-
-    void addRedactedSourceFile(String name, String path) {
-      final bytes = readStableFile(path);
+  try {
+    await Isolate.run(() {
+      var zipFile = ZipFile.open(cacheFilePath);
       try {
-        final decoded = jsonDecode(utf8.decode(bytes));
-        final redacted = jsonEncode(_redactSourceSecrets(decoded));
-        zipFile.addFileFromBytes(name, utf8.encode(redacted));
-      } catch (error) {
-        throw FormatException('Source data is not valid JSON: $path', error);
-      }
-      manifestFiles.add(name);
-    }
-
-    var historyFile = FilePath.join(dataPath, "history.db");
-    var localFavoriteFile = FilePath.join(dataPath, "local_favorite.db");
-    var readLaterFile = FilePath.join(dataPath, "read_later.db");
-    var statisticsFile = FilePath.join(dataPath, "reading_statistics.db");
-    var appdataFile = FilePath.join(dataPath, "syncdata.json");
-    addStableFile("history.db", historyFile);
-    addStableFile("local_favorite.db", localFavoriteFile);
-    addStableFile("read_later.db", readLaterFile, optional: true);
-    addStableFile("reading_statistics.db", statisticsFile, optional: true);
-    addStableFile("appdata.json", appdataFile);
-    final sourceDirectory = Directory(FilePath.join(dataPath, "comic_source"));
-    if (sourceDirectory.existsSync()) {
-      for (var file in sourceDirectory.listSync()) {
-        if (file is File) {
-          final name = file.name;
-          if (name.endsWith('.tmp') || name.endsWith('.bak')) {
-            continue;
+        final manifestFiles = <String>[];
+        Uint8List readStableFile(String path) {
+          Object? lastError;
+          for (var attempt = 0; attempt < 5; attempt++) {
+            try {
+              return File(path).readAsBytesSync();
+            } catch (error) {
+              lastError = error;
+              sleep(const Duration(milliseconds: 20));
+            }
           }
-          if (name.endsWith('.data')) {
-            addRedactedSourceFile("comic_source/$name", file.path);
-          } else {
-            addStableFile("comic_source/$name", file.path);
+          throw lastError ?? StateError('Unable to read $path');
+        }
+
+        void addStableFile(String name, String path, {bool optional = false}) {
+          if (!File(path).existsSync()) {
+            if (optional) return;
+            throw StateError('Backup file does not exist: $path');
+          }
+          zipFile.addFileFromBytes(name, readStableFile(path));
+          manifestFiles.add(name);
+        }
+
+        void addSourceFile(String name, String path) {
+          final bytes = readStableFile(path);
+          try {
+            final decoded = jsonDecode(utf8.decode(bytes));
+            if (decoded is! Map) {
+              throw const FormatException('Expected an object');
+            }
+            zipFile.addFileFromBytes(name, bytes);
+          } catch (error) {
+            throw const FormatException('Source data is not valid JSON');
+          }
+          manifestFiles.add(name);
+        }
+
+        var historyFile = FilePath.join(dataPath, "history.db");
+        var localFavoriteFile = FilePath.join(dataPath, "local_favorite.db");
+        var readLaterFile = FilePath.join(dataPath, "read_later.db");
+        var statisticsFile = FilePath.join(dataPath, "reading_statistics.db");
+        var appdataFile = FilePath.join(
+          dataPath,
+          sync ? "syncdata.json" : "appdata.json",
+        );
+        final cookiePath = FilePath.join(dataPath, 'cookie.db');
+        if (File(cookiePath).existsSync()) {
+          final snapshotPath = '$cacheFilePath.cookies';
+          final db = sqlite3.open(cookiePath, mode: OpenMode.readOnly);
+          try {
+            // SQLite produces a consistent snapshot, including any WAL contents.
+            db.execute('VACUUM main INTO ?;', [snapshotPath]);
+            addStableFile('cookie.db', snapshotPath);
+          } finally {
+            db.dispose();
+            final snapshot = File(snapshotPath);
+            if (snapshot.existsSync()) snapshot.deleteSync();
           }
         }
+        addStableFile("history.db", historyFile);
+        addStableFile("local_favorite.db", localFavoriteFile);
+        addStableFile("read_later.db", readLaterFile, optional: true);
+        addStableFile("reading_statistics.db", statisticsFile, optional: true);
+        addStableFile("appdata.json", appdataFile);
+        final sourceDirectory = Directory(
+          FilePath.join(dataPath, "comic_source"),
+        );
+        if (sourceDirectory.existsSync()) {
+          for (var file in sourceDirectory.listSync()) {
+            if (file is File) {
+              final name = file.name;
+              if (name.endsWith('.tmp') || name.endsWith('.bak')) {
+                continue;
+              }
+              if (name.endsWith('.data')) {
+                addSourceFile("comic_source/$name", file.path);
+              } else {
+                addStableFile("comic_source/$name", file.path);
+              }
+            }
+          }
+        }
+        zipFile.addFileFromBytes(
+          'manifest.json',
+          utf8.encode(jsonEncode({'format': 1, 'files': manifestFiles})),
+        );
+      } finally {
+        zipFile.close();
       }
-    }
-    zipFile.addFileFromBytes(
-      'manifest.json',
-      utf8.encode(jsonEncode({'format': 1, 'files': manifestFiles})),
-    );
-    zipFile.close();
-  });
+    });
+  } catch (_) {
+    await cacheFile.deleteIgnoreError();
+    rethrow;
+  }
   return cacheFile;
 }
 
@@ -147,7 +148,7 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
   await cacheDir.create(recursive: true);
   try {
     await ArchiveSecurity.extract(file, cacheDir);
-    await _sanitizeBackupSources(cacheDir);
+    await _validateBackupSources(cacheDir);
     _validateBackupManifest(cacheDir);
     var historyFile = cacheDir.joinFile("history.db");
     var localFavoriteFile = cacheDir.joinFile("local_favorite.db");
@@ -157,6 +158,18 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
     _validateBackupJson(appdataFile);
     _validateBackupDatabase(historyFile, 'history');
     _validateBackupDatabase(localFavoriteFile, 'local_favorite');
+    final cookieFile = cacheDir.joinFile('cookie.db');
+    if (cookieFile.existsSync()) {
+      _validateBackupDatabase(cookieFile, 'cookie');
+      final db = sqlite3.open(cookieFile.path, mode: OpenMode.readOnly);
+      try {
+        db.select(
+          'SELECT name, value, domain, path, expires, secure, httpOnly FROM cookies LIMIT 0;',
+        );
+      } finally {
+        db.dispose();
+      }
+    }
     if (await readLaterFile.exists()) {
       _validateBackupDatabase(readLaterFile, 'read_later');
     }
@@ -177,6 +190,7 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
       readLaterFile,
       statisticsFile,
       appdataFile,
+      restoreWebdav: !checkVersion,
     );
   } finally {
     cacheDir.deleteIgnoreError(recursive: true);
@@ -213,7 +227,7 @@ void _validateBackupManifest(Directory staging) {
   }
 }
 
-Future<void> _sanitizeBackupSources(Directory staging) async {
+Future<void> _validateBackupSources(Directory staging) async {
   final sourceDir = Directory(FilePath.join(staging.path, 'comic_source'));
   if (!await sourceDir.exists()) return;
   await for (final entity in sourceDir.list(
@@ -232,14 +246,16 @@ Future<void> _sanitizeBackupSources(Directory staging) async {
       throw const FormatException('Backup source file is unreadable');
     }
     if (name.endsWith('.data')) {
-      final decoded = jsonDecode(await entity.readAsString());
+      Object? decoded;
+      try {
+        decoded = jsonDecode(await entity.readAsString());
+      } on FormatException {
+        // Parser exceptions may include snippets containing credentials.
+        throw const FormatException('Source data is not valid JSON');
+      }
       if (decoded is! Map) {
         throw const FormatException('Source data must be a JSON object');
       }
-      await entity.writeAsString(
-        jsonEncode(_redactSourceSecrets(decoded)),
-        flush: true,
-      );
     } else if (name.endsWith('.js') &&
         (await entity.readAsString()).trim().isEmpty) {
       throw const FormatException('Source script is empty');
@@ -278,118 +294,83 @@ Future<void> _commitBackup(
   File favoriteFile,
   File readLaterFile,
   File statisticsFile,
-  File appdataFile,
-) async {
+  File appdataFile, {
+  required bool restoreWebdav,
+}) async {
   final stamp = DateTime.now().millisecondsSinceEpoch.toString();
   final rollback = Directory(FilePath.join(App.cachePath, 'restore_$stamp'));
   await rollback.create(recursive: true);
   final names = <String>['history.db', 'local_favorite.db', 'appdata.json'];
+  // saveData also rewrites syncdata; include it in the same rollback scope.
+  await File(FilePath.join(staging.path, 'syncdata.json')).writeAsString('{}');
+  names.add('syncdata.json');
   if (readLaterFile.existsSync()) names.add('read_later.db');
   if (statisticsFile.existsSync()) names.add('reading_statistics.db');
+  final replaceCookies = staging.joinFile('cookie.db').existsSync();
+  if (replaceCookies) names.add('cookie.db');
   final sourceDir = Directory(FilePath.join(staging.path, 'comic_source'));
-  final targetSourceDir = Directory(
-    FilePath.join(App.dataPath, 'comic_source'),
-  );
-  final oldSourceDir = Directory(FilePath.join(rollback.path, 'comic_source'));
   final replaceSources = sourceDir.existsSync();
-  final oldAppdata = File(FilePath.join(rollback.path, 'appdata.json'));
-  var cleanupRollback = true;
-  try {
+  if (replaceSources) names.add('comic_source');
+  final snapshot = Map<String, dynamic>.from(
+    jsonDecode(jsonEncode(appdata.toJson())),
+  );
+  final transaction = RestoreFiles(
+    staging: staging,
+    live: Directory(App.dataPath),
+    backup: rollback,
+    names: names,
+  );
+  void closeDatabases() {
+    if (replaceCookies) SingleInstanceCookieJar.instance?.dispose();
     HistoryManager().close();
     LocalFavoritesManager().close();
     ReadLaterManager().close();
     ReadingStatisticsManager().close();
-    for (final name in names) {
-      final current = File(FilePath.join(App.dataPath, name));
-      if (current.existsSync()) {
-        await current.rename(FilePath.join(rollback.path, name));
+  }
+
+  Future<void> openDatabases() async {
+    if (replaceCookies) {
+      final cookies = SingleInstanceCookieJar.instance;
+      if (cookies == null) {
+        SingleInstanceCookieJar(FilePath.join(App.dataPath, 'cookie.db'));
+      } else {
+        cookies.init();
       }
     }
-    if (replaceSources && targetSourceDir.existsSync()) {
-      await targetSourceDir.rename(oldSourceDir.path);
-    }
-    await historyFile.rename(FilePath.join(App.dataPath, 'history.db'));
-    await favoriteFile.rename(FilePath.join(App.dataPath, 'local_favorite.db'));
-    if (readLaterFile.existsSync()) {
-      await readLaterFile.rename(FilePath.join(App.dataPath, 'read_later.db'));
-    }
-    if (statisticsFile.existsSync()) {
-      await statisticsFile.rename(
-        FilePath.join(App.dataPath, 'reading_statistics.db'),
-      );
-    }
-    await appdataFile.rename(FilePath.join(App.dataPath, 'appdata.json'));
-    if (replaceSources) await sourceDir.rename(targetSourceDir.path);
+    await HistoryManager().init();
+    await LocalFavoritesManager().init();
+    await ReadLaterManager().init();
+    await ReadingStatisticsManager().init();
+  }
+
+  var cleanupRollback = false;
+  try {
+    closeDatabases();
+    await transaction.apply();
     appdata.syncData(
       jsonDecode(
         await File(FilePath.join(App.dataPath, 'appdata.json')).readAsString(),
       ),
       persist: false,
+      restoreWebdav: restoreWebdav,
     );
-    await HistoryManager().init();
-    await LocalFavoritesManager().init();
-    await ReadLaterManager().init();
-    await ReadingStatisticsManager().init();
-    if (replaceSources) {
-      await ComicSourceManager().reload();
-    }
-    await rollback.delete(recursive: true);
+    await openDatabases();
+    if (replaceSources) await ComicSourceManager().reload();
+    await appdata.saveData(false);
+    cleanupRollback = true;
   } catch (error, stack) {
-    var restored = true;
-    for (final name in names.reversed) {
-      try {
-        final current = File(FilePath.join(App.dataPath, name));
-        if (current.existsSync()) await current.delete();
-        final old = File(FilePath.join(rollback.path, name));
-        if (old.existsSync()) {
-          await old.rename(current.path);
-        }
-      } catch (e, s) {
-        restored = false;
-        Log.error('Import Data', 'Failed to restore $name: $e', s);
-      }
-    }
-    if (replaceSources) {
-      try {
-        if (targetSourceDir.existsSync()) {
-          await targetSourceDir.delete(recursive: true);
-        }
-        if (oldSourceDir.existsSync()) {
-          await oldSourceDir.rename(targetSourceDir.path);
-        }
-        // reload() clears the registry before parsing. Rebuild it from the
-        // restored files so memory cannot remain on a partial failed state.
-        await ComicSourceManager().reload();
-      } catch (e, s) {
-        restored = false;
-        Log.error('Import Data', 'Failed to restore comic sources: $e', s);
-      }
-    }
-    if (oldAppdata.existsSync()) {
-      try {
-        appdata.syncData(
-          jsonDecode(await oldAppdata.readAsString()),
-          persist: false,
-        );
-      } catch (e, s) {
-        restored = false;
-        Log.error('Import Data', 'Failed to restore appdata: $e', s);
-      }
-    }
     try {
-      await HistoryManager().init();
-      await LocalFavoritesManager().init();
-      await ReadLaterManager().init();
-      await ReadingStatisticsManager().init();
+      closeDatabases();
+      await transaction.rollback();
+      appdata.restoreMemorySnapshot(snapshot);
+      await openDatabases();
+      if (replaceSources) await ComicSourceManager().reload();
+      cleanupRollback = true;
     } catch (e, s) {
-      restored = false;
-      Log.error('Import Data', 'Failed to reopen restored databases: $e', s);
-    }
-    if (!restored) {
-      cleanupRollback = false;
       Log.error(
         'Import Data',
-        'Restore failed; preserving rollback directory at ${rollback.path}',
+        'Restore failed; preserving rollback directory at ${rollback.path}: $e',
+        s,
       );
     }
     Error.throwWithStackTrace(error, stack);

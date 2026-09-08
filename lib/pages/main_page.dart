@@ -3,6 +3,7 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/pages/categories_page.dart';
 import 'package:venera/pages/search_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
+import 'package:venera/pages/settings/home_layout_page.dart';
 import 'package:venera/utils/translations.dart';
 
 import '../components/components.dart';
@@ -46,15 +47,9 @@ class _MainPageState extends State<MainPage> {
 
   final _pages = [
     const HomePage(),
-    const FavoritesPage(
-      key: PageStorageKey('favorites'),
-    ),
-    const ExplorePage(
-      key: PageStorageKey('explore'),
-    ),
-    const CategoriesPage(
-      key: PageStorageKey('categories'),
-    ),
+    const FavoritesPage(key: PageStorageKey('favorites')),
+    const ExplorePage(key: PageStorageKey('explore')),
+    const CategoriesPage(key: PageStorageKey('categories')),
   ];
 
   var index = 0;
@@ -93,7 +88,15 @@ class _MainPageState extends State<MainPage> {
         });
       },
       paneActions: [
-        if(index != 0)
+        if (index == 0)
+          PaneActionEntry(
+            icon: Icons.tune,
+            label: 'Customize home'.tl,
+            onTap: () {
+              to(() => const HomeLayoutPage(), preventDuplicate: true);
+            },
+          ),
+        if (index != 0)
           PaneActionEntry(
             icon: Icons.search,
             label: "Search".tl,
@@ -107,7 +110,7 @@ class _MainPageState extends State<MainPage> {
           onTap: () {
             to(() => const SettingsPage(), preventDuplicate: true);
           },
-        )
+        ),
       ],
       pageBuilder: (index) {
         return _pages[index];
