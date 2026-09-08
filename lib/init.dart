@@ -8,6 +8,7 @@ import 'package:rhttp/rhttp.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_source/source_library.dart';
 import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/cookie_jar.dart';
@@ -151,9 +152,20 @@ void _checkOldConfigs() {
     "git.nyne.dev",
   )) {
     // migrate to jsdelivr cdn
-    appdata.settings['comicSourceListUrl'] =
+    const migratedUrl =
         "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
-    appdata.saveData();
+    final oldUrl = appdata.settings['comicSourceListUrl'].toString();
+    final oldLibrary = findLibraryByUrl(
+      ComicSourceLibraryManager.all(),
+      oldUrl,
+    );
+    if (oldLibrary != null) {
+      ComicSourceLibraryManager.edit(oldLibrary.id, url: migratedUrl);
+    } else {
+      appdata.settings['comicSourceListUrl'] = migratedUrl;
+      ComicSourceLibraryManager.migrateLegacy();
+      appdata.saveData();
+    }
   }
 }
 

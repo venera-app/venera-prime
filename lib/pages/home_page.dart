@@ -3,6 +3,8 @@ import 'package:sliver_tools/sliver_tools.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/home_layout.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
@@ -32,20 +34,37 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: appdata.settings,
+    builder: (context, _) => _buildHome(context),
+  );
+
+  Widget _buildHome(BuildContext context) {
+    final layout = HomeLayout.fromJson(appdata.settings['homeLayout']);
+    const modules = <String, Widget>{
+      'search': _SearchBar(),
+      'sync': _SyncDataWidget(),
+      'random': _RandomComicAction(),
+      'history': _History(),
+      'readLater': _ReadLater(),
+      'statistics': _ReadingStatisticsPreview(),
+      'local': _Local(),
+      'updates': FollowUpdatesWidget(),
+      'sources': _ComicSourceWidget(),
+      'images': ImageFavorites(),
+    };
     var widget = SmoothCustomScrollView(
       slivers: [
         SliverPadding(padding: EdgeInsets.only(top: context.padding.top)),
-        const _SearchBar(),
-        const _SyncDataWidget(),
-        const _RandomComicAction(),
-        const _History(),
-        const _ReadLater(),
-        const _ReadingStatisticsPreview(),
-        const _Local(),
-        const FollowUpdatesWidget(),
-        const _ComicSourceWidget(),
-        const ImageFavorites(),
+        for (final id in layout.order)
+          if (!layout.hidden.contains(id) || id == 'sync')
+            SliverVisibility(
+              key: ValueKey(id),
+              visible: !layout.hidden.contains(id),
+              // The sync module also observes lifecycle resume events.
+              maintainState: id == 'sync',
+              sliver: modules[id]!,
+            ),
         SliverPadding(padding: EdgeInsets.only(top: context.padding.bottom)),
       ],
     );

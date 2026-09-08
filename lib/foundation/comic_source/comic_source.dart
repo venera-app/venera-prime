@@ -22,6 +22,7 @@ import 'package:venera/utils/translations.dart';
 
 import '../js_engine.dart';
 import '../log.dart';
+import 'source_library.dart';
 
 part 'category.dart';
 
@@ -53,6 +54,7 @@ class ComicSourceManager with ChangeNotifier, Init {
   @override
   @protected
   Future<void> doInit() async {
+    ComicSourceLibraryManager.migrateLegacy();
     final path = "${App.dataPath}/comic_source";
     if (!(await Directory(path).exists())) {
       await Directory(path).create(recursive: true);
@@ -129,13 +131,26 @@ class ComicSourceManager with ChangeNotifier, Init {
     notifyListeners();
   }
 
-  void add(ComicSource source) {
+  void add(
+    ComicSource source, {
+    String? originLibraryId,
+    String? sourceFileName,
+  }) {
     _sources.add(source);
+    if (originLibraryId != null) {
+      ComicSourceLibraryManager.recordOrigin(
+        source.key,
+        originLibraryId,
+        sourceFileName: sourceFileName,
+      );
+    }
     notifyListeners();
   }
 
   void remove(String key) {
     _sources.removeWhere((element) => element.key == key);
+    _updateUrls.remove(key);
+    ComicSourceLibraryManager.clearProvenance(key);
     notifyListeners();
   }
 
@@ -147,6 +162,7 @@ class ComicSourceManager with ChangeNotifier, Init {
   final _updateStates = <String, ComicSourceUpdateState>{};
   final _activeUpdates = <String>{};
   final _cancelRequestedUpdates = <String>{};
+  final _updateUrls = <String, String>{};
 
   Map<String, ComicSourceUpdateState> get updateStates =>
       Map.unmodifiable(_updateStates);
@@ -195,6 +211,25 @@ class ComicSourceManager with ChangeNotifier, Init {
     } else {
       _sources[index] = source;
     }
+    notifyListeners();
+  }
+
+  void setUpdateUrl(String key, String url) {
+    _updateUrls[key] = url;
+  }
+
+  void clearUpdateCandidates() {
+    _updateUrls.clear();
+    setAvailableUpdates({});
+  }
+
+  String? updateUrlFor(String key) => _updateUrls[key];
+
+  SourceProvenance? provenanceFor(String key) =>
+      ComicSourceLibraryManager.provenanceFor(key);
+
+  void updateProvenance(String key, SourceProvenance provenance) {
+    ComicSourceLibraryManager.setProvenance(key, provenance);
     notifyListeners();
   }
 

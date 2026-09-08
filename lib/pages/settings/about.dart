@@ -40,10 +40,11 @@ class _AboutSettingsState extends State<AboutSettings> {
             Text(
               "Venera Prime is a free and open-source app for comic reading."
                   .tl,
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
           ],
-        ).toSliver(),
+        ).paddingHorizontal(24).toSliver(),
         ListTile(
           title: Text("Check for updates".tl),
           trailing: Button.filled(
@@ -66,7 +67,7 @@ class _AboutSettingsState extends State<AboutSettings> {
           settingKey: "checkUpdateOnStart",
         ).toSliver(),
         ListTile(
-          title: const Text("Github"),
+          title: const Text("GitHub"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
             launchUrlString("https://github.com/venera-app/venera-prime");

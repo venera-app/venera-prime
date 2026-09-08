@@ -134,6 +134,13 @@ class Appdata with Init {
     return {'settings': settings._data, 'searchHistory': searchHistory};
   }
 
+  /// Only for restoring an in-process snapshot after a failed import.
+  /// External backup input must go through syncData's validation instead.
+  void restoreMemorySnapshot(Map<String, dynamic> snapshot) {
+    settings._restoreSnapshot(Map<String, dynamic>.from(snapshot['settings']));
+    searchHistory = List<String>.from(snapshot['searchHistory']);
+  }
+
   List<String> splitField(String merged) {
     return merged
         .split(',')
@@ -165,32 +172,12 @@ class Appdata with Init {
     "deviceSpecificSettings",
   ];
 
-  static const _secretSyncFields = {
-    "account",
-    "password",
-    "passwd",
-    "pwd",
-    "token",
-    "access_token",
-    "refresh_token",
-    "authorization",
-    "cookie",
-    "set_cookie",
-    "secret",
-  };
-
-  static bool _isSecretSyncField(String field) {
-    final normalized = field.toLowerCase().replaceAll('-', '_');
-    return _secretSyncFields.contains(normalized) ||
-        normalized.contains('token');
-  }
-
   static void _removeSyncDisabledFields(
     Map<String, dynamic> settings,
     List<String> disabledFields,
   ) {
     for (final field in settings.keys.toList()) {
-      if (disabledFields.contains(field) || _isSecretSyncField(field)) {
+      if (disabledFields.contains(field)) {
         settings.remove(field);
       }
     }
@@ -200,8 +187,7 @@ class Appdata with Init {
         for (var scopedSettings in container.values) {
           if (scopedSettings is Map) {
             for (final field in scopedSettings.keys.toList()) {
-              if (disabledFields.contains(field) ||
-                  _isSecretSyncField(field.toString())) {
+              if (disabledFields.contains(field)) {
                 scopedSettings.remove(field);
               }
             }
@@ -262,20 +248,14 @@ class Appdata with Init {
     "webdav",
     "disableSyncFields",
     "deviceId",
-    "account",
-    "password",
-    "passwd",
-    "pwd",
-    "token",
-    "access_token",
-    "refresh_token",
-    "authorization",
-    "cookie",
-    "secret",
   ];
 
   /// Sync data from another device
-  void syncData(Map<String, dynamic> data, {bool persist = true}) {
+  void syncData(
+    Map<String, dynamic> data, {
+    bool persist = true,
+    bool restoreWebdav = false,
+  }) {
     if (data['settings'] is Map) {
       var settings = _sanitizeSettings(data['settings'] as Map);
 
@@ -285,7 +265,9 @@ class Appdata with Init {
       _removeSyncDisabledFields(settings, customDisableSync);
 
       for (var key in settings.keys) {
-        if (!_disableSync.contains(key) && !customDisableSync.contains(key)) {
+        if ((!_disableSync.contains(key) ||
+                (restoreWebdav && key == 'webdav')) &&
+            !customDisableSync.contains(key)) {
           if (_readerScopedSettingContainers.contains(key) &&
               settings[key] is Map &&
               customDisableSync.isNotEmpty) {
@@ -401,8 +383,16 @@ final appdata = Appdata._create();
 class Settings with ChangeNotifier {
   Settings._create();
 
+  void _restoreSnapshot(Map<String, dynamic> snapshot) {
+    _data
+      ..clear()
+      ..addAll(snapshot);
+    notifyListeners();
+  }
+
   final _data = <String, dynamic>{
     'comicDisplayMode': 'detailed', // detailed, brief
+    'homeLayout': <String, dynamic>{},
     'comicTileScale': 1.00, // 0.75-1.25
     'color': 'system', // red, pink, purple, green, orange, blue
     'theme_mode': 'system', // light, dark, system
@@ -450,6 +440,8 @@ class Settings with ChangeNotifier {
     'sni': true,
     'autoAddLanguageFilter': 'none', // none, chinese, english, japanese
     'comicSourceListUrl': _defaultSourceListUrl,
+    'comicSourceLibraries': <Map<String, dynamic>>[],
+    'comicSourceProvenance': <String, dynamic>{},
     'comicSourceOrder': <String>[],
     'preloadImageCount': 4,
     'followUpdatesFolder': null,

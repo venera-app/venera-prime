@@ -7,6 +7,7 @@ import 'package:venera/foundation/log.dart';
 
 class CookieJarSql {
   late Database _db;
+  bool _isOpen = false;
 
   final String path;
 
@@ -15,7 +16,9 @@ class CookieJarSql {
   }
 
   void init() {
+    if (_isOpen) return;
     _db = sqlite3.open(path);
+    _isOpen = true;
     _db.execute('''
       CREATE TABLE IF NOT EXISTS cookies (
         name TEXT NOT NULL,
@@ -222,7 +225,9 @@ class CookieJarSql {
   }
 
   void dispose() {
+    if (!_isOpen) return;
     _db.dispose();
+    _isOpen = false;
   }
 }
 

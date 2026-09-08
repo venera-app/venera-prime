@@ -977,12 +977,28 @@ class LocalManager with ChangeNotifier {
     }
   }
 
-  Future<void> saveCurrentDownloadingTasks() async {
-    var tasks = downloadingTasks.map((e) => e.toJson()).toList();
-    await atomicWriteString(
-      File(FilePath.join(App.dataPath, 'downloading_tasks.json')),
-      jsonEncode(tasks),
-    );
+  void retryTask(DownloadTask task) {
+    if (!downloadingTasks.contains(task) || !task.isError) return;
+    moveToFirst(task);
+    task.resume();
+  }
+
+  Future<void> _taskSaveTail = Future<void>.value();
+
+  Future<void> saveCurrentDownloadingTasks() {
+    // Progress and queue changes can save concurrently. Atomic replacement
+    // still needs a single writer for the same target file.
+    final write = _taskSaveTail.then((_) async {
+      final tasks = downloadingTasks.map((e) => e.toJson()).toList();
+      await atomicWriteString(
+        File(FilePath.join(App.dataPath, 'downloading_tasks.json')),
+        jsonEncode(tasks),
+      );
+    });
+    _taskSaveTail = write.catchError((Object error, StackTrace stack) {
+      Log.error('Download', 'Failed to save download queue: $error', stack);
+    });
+    return write;
   }
 
   void restoreDownloadingTasks() {
@@ -1230,7 +1246,8 @@ class LocalManager with ChangeNotifier {
       }
       if (current == root) break;
       final parent = path_utils.dirname(current);
-      if (parent == current || !path_utils.isWithin(root, parent)) {
+      if (parent == current ||
+          (parent != root && !path_utils.isWithin(root, parent))) {
         return false;
       }
       current = parent;

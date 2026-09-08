@@ -81,47 +81,46 @@ abstract final class ArchiveSecurity {
       throw const FormatException('Archive is too large');
     }
     final bytes = await input.readAsBytes();
-    final archive = archive_pkg.ZipDecoder().decodeBytes(bytes);
+    final directory = archive_pkg.ZipDirectory()
+      ..read(archive_pkg.InputMemoryStream(bytes));
     final root = path_utils.canonicalize(output.path);
     final seen = <String>{};
     dynamic nativeArchive;
     final verifiedSizes = <String, int>{};
-    // Some Android-produced ZIPs expose zero uncompressed sizes through the
-    // Dart decoder. Read the central-directory metadata from the native reader
-    // before applying expansion limits or extracting those entries.
-    if (Platform.isAndroid &&
-        archive.any((entry) => !entry.isDirectory && entry.size == 0)) {
-      await zip_flutter.loadLibrary();
-      nativeArchive = zip_flutter.ZipFile.openRead(input.path);
-      for (final entry in archive) {
-        if (entry.isDirectory) continue;
-        final nativeEntry = nativeArchive.getEntryByName(entry.name);
-        verifiedSizes[entry.name] = entry.size > 0
-            ? entry.size
-            : nativeEntry.size;
-      }
-    }
+    // Native Venera 1.6 ZIPs have correct central-directory sizes, while
+    // archive's lazy entry objects can report zero on every platform.
+    // Preflight the directory before decoding content (including symlinks).
     var total = 0;
-    for (final entry in archive) {
-      final target = safeTarget(root, entry.name);
+    for (final entry in directory.fileHeaders) {
+      final target = safeTarget(root, entry.filename);
       if (!seen.add(target)) {
         throw const FormatException('Archive contains duplicate entry names');
       }
-      final size = verifiedSizes[entry.name] ?? entry.size;
-      if (size > maxSingleFileBytes) {
+      if (((entry.externalFileAttributes >> 16) & 0xf000) == 0xa000) {
+        throw const FormatException('Archive symlinks are not supported');
+      }
+      final size = entry.uncompressedSize;
+      if (size < 0 || size > maxSingleFileBytes) {
         throw const FormatException('Archive entry is too large');
       }
-      if (!entry.isDirectory) total += size;
+      verifiedSizes[entry.filename] = size;
+      total += size;
     }
     _checkLimits(
-      entries: archive.length,
+      entries: directory.fileHeaders.length,
       totalBytes: total,
       archiveBytes: archiveBytes,
     );
+    final archive = archive_pkg.ZipDecoder().decodeBytes(bytes);
     await output.create(recursive: true);
     try {
       for (var index = 0; index < archive.length; index++) {
         final entry = archive[index];
+        if (!verifiedSizes.containsKey(entry.name)) {
+          throw const FormatException(
+            'Archive local and central entry names differ',
+          );
+        }
         final target = safeTarget(root, entry.name);
         _checkExistingPath(root, target);
         if (entry.isSymbolicLink) {

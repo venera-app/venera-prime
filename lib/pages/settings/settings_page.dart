@@ -16,6 +16,7 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/pages/reading_statistics_page.dart';
+import 'package:venera/pages/settings/home_layout_page.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
 import 'package:venera/utils/data.dart';

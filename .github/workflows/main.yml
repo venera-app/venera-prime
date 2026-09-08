@@ -342,33 +342,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: macos_build
+          pattern: "*_build"
+          merge-multiple: true
           path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: ios_build
-          path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: android_build
-          path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows_build
-          path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: deb_build
-          path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: arch_build
-          path: outputs
-      - uses: actions/download-artifact@v4
-        with:
-          name: deb_arm64_build
-          path: outputs
-        continue-on-error: true
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -383,3 +359,8 @@ jobs:
             outputs/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Report incomplete platform builds
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        run: |
+          echo '::error::One or more platform builds failed or were canceled. Published artifacts are incomplete.'
+          exit 1
