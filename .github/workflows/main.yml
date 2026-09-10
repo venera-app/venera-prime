@@ -1,6 +1,10 @@
 name: Build ALL
 run-name: Build ALL
 on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
     inputs:
       build_macos:
@@ -40,7 +44,18 @@ permissions:
   contents: write
 
 jobs:
+  Validate_Version:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version consistency
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 tool/check_version.py
+
   Build_MacOS:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_macos }}
     runs-on: macos-15
     timeout-minutes: 45
@@ -96,6 +111,7 @@ jobs:
           path: result/
 
   Build_IOS:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_ios }}
     runs-on: macos-15
     timeout-minutes: 45
@@ -125,6 +141,7 @@ jobs:
           path: result/
 
   Build_Android:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_android }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -188,6 +205,7 @@ jobs:
           path: build/app/outputs/apk/release
 
   Build_Windows:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_windows }}
     runs-on: windows-latest
     timeout-minutes: 45
@@ -214,6 +232,7 @@ jobs:
           path: build/windows/Venera-*
 
   Build_Linux:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_linux }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -278,6 +297,7 @@ jobs:
           path: build/linux/arch/
 
   Build_Linux_ARM64:
+    needs: Validate_Version
     if: ${{ github.event_name == 'release' || inputs.build_linux_arm64 }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
@@ -337,8 +357,8 @@ jobs:
 
   Release:
     runs-on: ubuntu-22.04
-    needs: [Build_MacOS, Build_IOS, Build_Android, Build_Windows, Build_Linux, Build_Linux_ARM64]
-    if: ${{ always() && github.event_name == 'release' }}
+    needs: [Validate_Version, Build_MacOS, Build_IOS, Build_Android, Build_Windows, Build_Linux, Build_Linux_ARM64]
+    if: ${{ always() && github.event_name == 'release' && needs.Validate_Version.result == 'success' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
