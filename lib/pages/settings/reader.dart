@@ -163,6 +163,44 @@ class _ReaderSettingsState extends State<ReaderSettings> {
               Divider().toSliver(),
             ],
           ),
+        if (comicId == null && App.isAndroid)
+          SliverMainAxisGroup(
+            slivers: [
+              SwitchListTile(
+                title: Text("Remember screen orientation only in reader".tl),
+                subtitle: Text(
+                  "Restore the previous screen orientation after leaving the reader."
+                      .tl,
+                ),
+                value: appdata.settings['rememberReaderOrientation'] == true,
+                onChanged: (value) {
+                  setState(() {
+                    appdata.settings['rememberReaderOrientation'] = value;
+                  });
+                  appdata.saveData();
+                },
+              ).toSliver(),
+              SwitchListTile(
+                title: Text("Remember screen orientation per comic".tl),
+                subtitle: Text(
+                  "Each comic remembers its own reader orientation.".tl,
+                ),
+                value:
+                    appdata.settings['rememberReaderOrientationPerComic'] ==
+                    true,
+                onChanged: appdata.settings['rememberReaderOrientation'] == true
+                    ? (value) {
+                        setState(() {
+                          appdata.settings['rememberReaderOrientationPerComic'] =
+                              value;
+                        });
+                        appdata.saveData();
+                      }
+                    : null,
+              ).toSliver(),
+              Divider().toSliver(),
+            ],
+          ),
         _SwitchSetting(
           title: "Tap to turn Pages".tl,
           settingKey: "enableTapToTurnPages",

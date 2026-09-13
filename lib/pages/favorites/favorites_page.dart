@@ -11,6 +11,7 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
+import 'package:venera/foundation/favorite_folder_title_action.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
@@ -68,6 +69,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
       _openLocalSearch = true;
     });
     _saveFolderSelection(false, _localAllFolderLabel);
+  }
+
+  VoidCallback? folderTitleTapAction(BuildContext context) {
+    final action = FavoriteFolderTitleAction.fromStorage(
+      appdata.settings['favoriteFolderTitleAction'],
+    );
+    if (action == FavoriteFolderTitleAction.returnToOverview) {
+      return () => setFolder(false, null);
+    }
+    return context.width < _kTwoPanelChangeWidth ? showFolderSelector : null;
   }
 
   void _saveFolderSelection(bool isNetwork, String? folder) {
