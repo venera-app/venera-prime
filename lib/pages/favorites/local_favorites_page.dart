@@ -308,9 +308,8 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                   : const SizedBox(),
             ),
             title: GestureDetector(
-              onTap: context.width < _kTwoPanelChangeWidth
-                  ? favPage.showFolderSelector
-                  : null,
+              behavior: HitTestBehavior.opaque,
+              onTap: favPage.folderTitleTapAction(context),
               child: Text(title),
             ),
             actions: [

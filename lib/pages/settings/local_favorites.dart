@@ -22,6 +22,14 @@ class _LocalFavoritesSettingsState extends State<LocalFavoritesSettings> {
           settingKey: "autoCloseFavoritePanel",
         ).toSliver(),
         SelectSetting(
+          title: "Tap favorite folder name".tl,
+          settingKey: "favoriteFolderTitleAction",
+          optionTranslation: {
+            "openSidebar": "Open folder sidebar".tl,
+            "returnToOverview": "Return to favorites overview".tl,
+          },
+        ).toSliver(),
+        SelectSetting(
           title: "Add new favorite to".tl,
           settingKey: "newFavoriteAddTo",
           optionTranslation: {

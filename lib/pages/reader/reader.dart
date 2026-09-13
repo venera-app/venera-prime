@@ -31,6 +31,7 @@ import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/read_later.dart';
 import 'package:venera/foundation/reading_statistics.dart';
+import 'package:venera/foundation/reader_orientation.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/images.dart';

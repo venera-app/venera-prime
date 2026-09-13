@@ -115,16 +115,39 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         sliderFocus.nextFocus();
       }
     });
-    if (rotation != null) {
-      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-    }
     super.initState();
     Future.delayed(const Duration(milliseconds: 200), addDragListener);
+  }
+
+  bool _orientationInitialized = false;
+  bool _restoreOrientationOnExit = false;
+  bool? _entryWasPortrait;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_orientationInitialized || !App.isAndroid) return;
+    _orientationInitialized = true;
+    _entryWasPortrait =
+        MediaQuery.orientationOf(context) == Orientation.portrait;
+    _restoreOrientationOnExit = ReaderOrientationMemory.enabled;
+    if (_restoreOrientationOnExit) {
+      rotation = ReaderOrientationMemory.modeFor(
+        comicId: context.reader.cid,
+        sourceKey: context.reader.type.sourceKey,
+      );
+      unawaited(ReaderOrientationSystem.apply(rotation));
+    }
   }
 
   @override
   void dispose() {
     sliderFocus.dispose();
+    if (_restoreOrientationOnExit && _entryWasPortrait != null) {
+      unawaited(
+        ReaderOrientationSystem.restore(wasPortrait: _entryWasPortrait!),
+      );
+    }
     super.dispose();
   }
 
@@ -143,7 +166,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     });
   }
 
-  bool? rotation;
+  ReaderOrientationMode rotation = ReaderOrientationMode.automatic;
 
   void update() {
     setState(() {});
@@ -448,36 +471,29 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           message: "Screen Rotation".tl,
           child: IconButton(
             icon: () {
-              if (rotation == null) {
-                return const Icon(Icons.screen_rotation);
-              } else if (rotation == false) {
-                return const Icon(Icons.screen_lock_portrait);
-              } else {
-                return const Icon(Icons.screen_lock_landscape);
-              }
+              return switch (rotation) {
+                ReaderOrientationMode.automatic => const Icon(
+                  Icons.screen_rotation,
+                ),
+                ReaderOrientationMode.portrait => const Icon(
+                  Icons.screen_lock_portrait,
+                ),
+                ReaderOrientationMode.landscape => const Icon(
+                  Icons.screen_lock_landscape,
+                ),
+              };
             }.call(),
             onPressed: () {
-              if (rotation == null) {
-                setState(() {
-                  rotation = false;
-                });
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.portraitUp,
-                  DeviceOrientation.portraitDown,
-                ]);
-              } else if (rotation == false) {
-                setState(() {
-                  rotation = true;
-                });
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight,
-                ]);
-              } else {
-                setState(() {
-                  rotation = null;
-                });
-                SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+              setState(() {
+                rotation = rotation.next;
+              });
+              unawaited(ReaderOrientationSystem.apply(rotation));
+              if (_restoreOrientationOnExit) {
+                ReaderOrientationMemory.remember(
+                  comicId: context.reader.cid,
+                  sourceKey: context.reader.type.sourceKey,
+                  mode: rotation,
+                );
               }
             },
           ),

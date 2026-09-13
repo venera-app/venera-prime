@@ -92,6 +92,8 @@ class _NormalFavoritePageState extends State<_NormalFavoritePage> {
 
   @override
   Widget build(BuildContext context) {
+    final favoritesPage = context
+        .findAncestorStateOfType<_FavoritesPageState>()!;
     return ComicList(
       key: comicListKey,
       leadingSliver: SliverAppbar(
@@ -108,7 +110,8 @@ class _NormalFavoritePageState extends State<_NormalFavoritePage> {
               : null,
         ),
         title: GestureDetector(
-          onTap: context.width < _kTwoPanelChangeWidth ? showFolders : null,
+          behavior: HitTestBehavior.opaque,
+          onTap: favoritesPage.folderTitleTapAction(context),
           child: Text(widget.data.title),
         ),
         actions: [
@@ -148,7 +151,8 @@ class _NormalFavoritePageState extends State<_NormalFavoritePage> {
               : null,
         ),
         title: GestureDetector(
-          onTap: context.width < _kTwoPanelChangeWidth ? showFolders : null,
+          behavior: HitTestBehavior.opaque,
+          onTap: favoritesPage.folderTitleTapAction(context),
           child: Text(widget.data.title),
         ),
       ),
@@ -225,6 +229,8 @@ class _MultiFolderFavoritesPageState extends State<_MultiFolderFavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final favoritesPage = context
+        .findAncestorStateOfType<_FavoritesPageState>()!;
     var sliverAppBar = SliverAppbar(
       style:
           context.width < changePoint ? AppbarStyle.shadow : AppbarStyle.blur,
@@ -239,7 +245,8 @@ class _MultiFolderFavoritesPageState extends State<_MultiFolderFavoritesPage> {
             : null,
       ),
       title: GestureDetector(
-        onTap: context.width < _kTwoPanelChangeWidth ? showFolders : null,
+        behavior: HitTestBehavior.opaque,
+        onTap: favoritesPage.folderTitleTapAction(context),
         child: Text(widget.data.title),
       ),
     );
@@ -256,7 +263,8 @@ class _MultiFolderFavoritesPageState extends State<_MultiFolderFavoritesPage> {
             : null,
       ),
       title: GestureDetector(
-        onTap: context.width < _kTwoPanelChangeWidth ? showFolders : null,
+        behavior: HitTestBehavior.opaque,
+        onTap: favoritesPage.folderTitleTapAction(context),
         child: Text(widget.data.title),
       ),
     );

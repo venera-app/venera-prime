@@ -249,6 +249,8 @@ class Appdata with Init {
     "webdav",
     "disableSyncFields",
     "deviceId",
+    "rememberReaderOrientation",
+    "rememberReaderOrientationPerComic",
   ];
 
   /// Sync data from another device
@@ -457,6 +459,8 @@ class Settings with ChangeNotifier {
     'enableDoubleTapToZoom': true,
     'reverseChapterOrder': false,
     'showSystemStatusBar': false,
+    'rememberReaderOrientation': false,
+    'rememberReaderOrientationPerComic': false,
     'comicSpecificSettings': <String, Map<String, dynamic>>{},
     'deviceSpecificSettings': <String, Map<String, dynamic>>{},
     'deviceId': '',
@@ -464,6 +468,7 @@ class Settings with ChangeNotifier {
     'readerScrollSpeed': 1.0, // 0.5 - 3.0
     'localFavoritesFirst': true,
     'autoCloseFavoritePanel': false,
+    'favoriteFolderTitleAction': 'openSidebar',
     'showChapterComments': true, // show chapter comments in reader
     'showChapterCommentsAtEnd':
         false, // show chapter comments at end of chapter
