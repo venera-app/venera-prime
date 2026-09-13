@@ -4,13 +4,13 @@ import 'package:display_mode/display_mode.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_saf/flutter_saf.dart';
-import 'package:rhttp/rhttp.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_source/source_library.dart';
 import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/network/app_dio.dart';
 import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
@@ -116,11 +116,12 @@ Future<void> _initComicSources() async {
   await Future<void>.delayed(const Duration(milliseconds: 500));
   try {
     await Future.wait([
-      Rhttp.init(),
+      ensureRHttpInitialized(),
       SAFTaskWorker().init().wait(),
       JsEngine().init().wait(),
     ]);
     await ComicSourceManager().init().wait();
+    App.local.restoreDownloadingTasks();
     _checkOldConfigs();
     ComicSourceManager().notifyStateChange();
   } catch (e, s) {

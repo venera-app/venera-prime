@@ -776,7 +776,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         if (downloadedPages.contains(_index)) {
           _index++;
           _message = _formatDownloadProgressMessage();
-          await LocalManager().saveCurrentDownloadingTasks();
+          LocalManager().scheduleCurrentDownloadingTasksSave();
           continue;
         }
         _scheduleTasks(downloadedPages);
@@ -797,7 +797,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         _downloadedCount++;
         downloadedPages.add(task.index);
         _message = _formatDownloadProgressMessage();
-        await LocalManager().saveCurrentDownloadingTasks();
+        LocalManager().scheduleCurrentDownloadingTasksSave();
       }
       _index = 0;
       _chapter++;
@@ -1005,6 +1005,7 @@ class _ImageDownloadWrapper {
         task.source.key,
         task.comicId,
         chapter,
+        cacheResult: false,
       )) {
         if (isCancelled) {
           return;

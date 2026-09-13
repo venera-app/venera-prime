@@ -917,7 +917,9 @@ class _ContinuousModeState extends State<_ContinuousMode>
             reader.type.sourceKey,
           ),
           child: ComicImage(
-            filterQuality: FilterQuality.medium,
+            // Bilinear filtering avoids mipmap work while large images are
+            // continuously moving. Gallery mode keeps medium quality for zoom.
+            filterQuality: FilterQuality.low,
             image: image,
             width: width,
             height: height,

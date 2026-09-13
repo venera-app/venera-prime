@@ -7,9 +7,15 @@ const _localAllFolderLabel = '^_^[%local_all%]^_^';
 const _asyncDataFetchLimit = 500;
 
 class _LocalFavoritesPage extends StatefulWidget {
-  const _LocalFavoritesPage({required this.folder, super.key});
+  const _LocalFavoritesPage({
+    required this.folder,
+    this.initialSearch = false,
+    super.key,
+  });
 
   final String folder;
+
+  final bool initialSearch;
 
   @override
   State<_LocalFavoritesPage> createState() => _LocalFavoritesPageState();
@@ -81,6 +87,9 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
             setState(() {
               isLoading = false;
               comics = value;
+              if (searchMode && keyword.trim().isEmpty) {
+                searchResults = value;
+              }
             });
           }
         });
@@ -103,6 +112,9 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
           }
         });
       }
+    }
+    if (searchMode && keyword.trim().isEmpty) {
+      searchResults = comics;
     }
     setState(() {});
   }
@@ -178,6 +190,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
   }
   @override
   void initState() {
+    searchMode = widget.initialSearch;
     readFilterSelect = appdata.implicitData["local_favorites_read_filter"] ??
         readFilterList[0];
     favPage = context.findAncestorStateOfType<_FavoritesPageState>()!;

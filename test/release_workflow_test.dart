@@ -13,6 +13,16 @@ void main() {
     ).firstMatch(appSource)!.group(1);
 
     expect(runtimeVersion, pubspecVersion);
+
+    final releaseNotes = File(
+      'doc/release-$pubspecVersion.md',
+    ).readAsLinesSync();
+    expect(releaseNotes.first, '# Venera Prime $pubspecVersion');
+
+    final aboutSource = File(
+      'lib/pages/settings/about.dart',
+    ).readAsStringSync();
+    expect(aboutSource, contains(r'Text("V${App.version}"'));
   });
 
   test('workflow validates versions before every build', () {

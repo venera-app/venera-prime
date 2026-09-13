@@ -15,6 +15,24 @@ import 'cookie_jar.dart';
 
 export 'package:dio/dio.dart';
 
+Future<void>? _rHttpInitialization;
+
+/// All rhttp users share one retryable initialization barrier.
+///
+/// Startup work is intentionally deferred, so requests from widgets, sync, or
+/// comic-source hooks may otherwise reach the native bridge first.
+Future<void> ensureRHttpInitialized() =>
+    _rHttpInitialization ??= _initializeRHttp();
+
+Future<void> _initializeRHttp() async {
+  try {
+    await rhttp.Rhttp.init();
+  } catch (_) {
+    _rHttpInitialization = null;
+    rethrow;
+  }
+}
+
 class MyLogInterceptor implements Interceptor {
   static const _sensitiveNames = {
     'authorization',
@@ -376,6 +394,7 @@ class RHttpAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    await ensureRHttpInitialized();
     if (options.headers['User-Agent'] == null &&
         options.headers['user-agent'] == null) {
       options.headers['User-Agent'] = "venera/v${App.version}";

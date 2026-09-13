@@ -40,6 +40,30 @@ if runtime_version != pubspec_base_version:
         f"pubspec.yaml={pubspec_version}, app.dart={runtime_version}"
     )
 
+release_notes_path = ROOT / "doc" / f"release-{pubspec_base_version}.md"
+if not release_notes_path.is_file():
+    fail(
+        "Missing release notes: "
+        f"{release_notes_path.relative_to(ROOT)}"
+    )
+
+release_notes_title = release_notes_path.read_text(
+    encoding="utf-8"
+).splitlines()[0]
+expected_release_notes_title = f"# Venera Prime {pubspec_base_version}"
+if release_notes_title != expected_release_notes_title:
+    fail(
+        "Release notes title mismatch: "
+        f"expected={expected_release_notes_title!r}, "
+        f"actual={release_notes_title!r}"
+    )
+
+about_source = (ROOT / "lib/pages/settings/about.dart").read_text(
+    encoding="utf-8"
+)
+if 'Text("V${App.version}"' not in about_source:
+    fail("About page must display App.version")
+
 release_tag = os.environ.get("RELEASE_TAG", "").strip()
 if release_tag:
     tag_version = release_tag.removeprefix("v").removeprefix("V")
@@ -52,5 +76,6 @@ if release_tag:
 release_suffix = f", release tag={release_tag}" if release_tag else ""
 print(
     "Version consistency OK: "
-    f"pubspec={pubspec_version}, runtime={runtime_version}{release_suffix}"
+    f"pubspec={pubspec_version}, runtime={runtime_version}, "
+    f"release notes={release_notes_path.relative_to(ROOT)}{release_suffix}"
 )

@@ -27,6 +27,7 @@ import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
 part 'favorite_actions.dart';
+part 'favorites_overview.dart';
 part 'side_bar.dart';
 part 'local_favorites_page.dart';
 part 'network_favorites_page.dart';
@@ -47,13 +48,29 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   bool isNetwork = false;
 
+  bool _openLocalSearch = false;
+
   FolderList? folderList;
 
   void setFolder(bool isNetwork, String? folder) {
     setState(() {
       this.isNetwork = isNetwork;
       this.folder = folder;
+      _openLocalSearch = false;
     });
+    _saveFolderSelection(isNetwork, folder);
+  }
+
+  void searchLocalFavorites() {
+    setState(() {
+      isNetwork = false;
+      folder = _localAllFolderLabel;
+      _openLocalSearch = true;
+    });
+    _saveFolderSelection(false, _localAllFolderLabel);
+  }
+
+  void _saveFolderSelection(bool isNetwork, String? folder) {
     folderList?.update();
     appdata.implicitData['favoriteFolder'] = {
       'name': folder,
@@ -141,32 +158,19 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Widget buildBody() {
     if (folder == null) {
-      return CustomScrollView(
-        slivers: [
-          SliverAppbar(
-            leading: Tooltip(
-              message: "Folders".tl,
-              child: context.width <= _kTwoPanelChangeWidth
-                  ? IconButton(
-                      icon: const Icon(Icons.menu),
-                      color: context.colorScheme.primary,
-                      onPressed: showFolderSelector,
-                    )
-                  : null,
-            ),
-            title: GestureDetector(
-              onTap: context.width < _kTwoPanelChangeWidth
-                  ? showFolderSelector
-                  : null,
-              child: Text("Unselected".tl),
-            ),
-          ),
-        ],
+      return _FavoritesOverview(
+        onShowFolders: showFolderSelector,
+        onOpenLocalSearch: searchLocalFavorites,
       );
     }
     if (!isNetwork) {
       return _LocalFavoritesPage(
-          folder: folder!, key: PageStorageKey("local_$folder"));
+        folder: folder!,
+        initialSearch: _openLocalSearch,
+        key: PageStorageKey(
+          "local_${folder}_${_openLocalSearch ? 'search' : 'browse'}",
+        ),
+      );
     } else {
       var favoriteData = getFavoriteDataOrNull(folder!);
       if (favoriteData == null) {

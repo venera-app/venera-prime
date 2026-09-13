@@ -869,6 +869,72 @@ class LocalFavoritesManager with ChangeNotifier {
     return true;
   }
 
+  /// Adds multiple comics atomically and notifies listeners once after all
+  /// database writes have completed.
+  ///
+  /// Returns the number of comics that were inserted. Comics already present
+  /// in the folder are ignored.
+  int addComics(String folder, List<FavoriteItem> comics) {
+    if (!existsFolder(folder)) {
+      throw Exception("Folder does not exists");
+    }
+    if (comics.isEmpty) {
+      return 0;
+    }
+
+    final table = _favoriteTable(folder);
+    final addToEnd = appdata.settings['newFavoriteAddTo'] == "end";
+    var displayOrder = addToEnd ? maxValue(folder) + 1 : minValue(folder) - 1;
+    final inserted = <FavoriteItem>[];
+
+    _db.execute("BEGIN TRANSACTION");
+    try {
+      for (final comic in comics) {
+        final translatedTags = _translateTags(comic.tags);
+        _db.execute(
+          """
+          insert or ignore into $table
+            (id, name, author, type, tags, cover_path, time, translated_tags, display_order)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """,
+          [
+            comic.id,
+            comic.name,
+            comic.author,
+            comic.type.value,
+            comic.tags.join(","),
+            comic.coverPath,
+            comic.time,
+            translatedTags,
+            displayOrder,
+          ],
+        );
+        if (_db.updatedRows == 0) {
+          continue;
+        }
+        inserted.add(comic);
+        displayOrder += addToEnd ? 1 : -1;
+      }
+      _db.execute("COMMIT");
+    } catch (_) {
+      _db.execute("ROLLBACK");
+      rethrow;
+    }
+
+    if (inserted.isEmpty) {
+      return 0;
+    }
+    counts[folder] = counts[folder] == null
+        ? count(folder)
+        : counts[folder]! + inserted.length;
+    for (final comic in inserted) {
+      final identity = _identityKey(comic.id, comic.type.value);
+      _hashedIds[identity] = (_hashedIds[identity] ?? 0) + 1;
+    }
+    notifyListeners();
+    return inserted.length;
+  }
+
   void moveFavorite(
     String sourceFolder,
     String targetFolder,

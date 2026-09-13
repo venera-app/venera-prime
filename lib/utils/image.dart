@@ -292,9 +292,12 @@ class JsEngine {
 }
 
 var _tasksCount = 0;
+const _maxConcurrentImageModifications = 1;
 
 Future<Uint8List> modifyImageWithScript(Uint8List data, String script) async {
-  while (_tasksCount > 3) {
+  // Decoding expands compressed pages into large RGBA buffers. Serializing
+  // this path prevents concurrent downloads from starving frame rendering.
+  while (_tasksCount >= _maxConcurrentImageModifications) {
     await Future.delayed(const Duration(milliseconds: 200));
   }
   _tasksCount++;

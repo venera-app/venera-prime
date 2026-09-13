@@ -88,8 +88,12 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
               padding: widget.withAppbar
                   ? EdgeInsets.zero
                   : EdgeInsets.only(top: context.padding.top),
-              itemCount: folders.length + networkFolders.length + 3,
+              itemCount: folders.length + networkFolders.length + 4,
               itemBuilder: (context, index) {
+                if (index == 0) {
+                  return buildOverview();
+                }
+                index--;
                 if (index == 0) {
                   return buildLocalTitle();
                 }
@@ -111,6 +115,43 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
             ),
           )
         ],
+      ),
+    );
+  }
+
+  Widget buildOverview() {
+    final isSelected = favPage.folder == null;
+    return InkWell(
+      onTap: () {
+        if (!isSelected) {
+          favPage.setFolder(false, null);
+        }
+        widget.onSelected?.call();
+      },
+      child: Container(
+        height: 48,
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: isSelected
+              ? context.colorScheme.primaryContainer.toOpacity(0.36)
+              : null,
+          border: Border(
+            left: BorderSide(
+              color:
+                  isSelected ? context.colorScheme.primary : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Icon(Icons.dashboard_outlined,
+                color: context.colorScheme.secondary),
+            const SizedBox(width: 12),
+            Text("Overview".tl),
+          ],
+        ),
       ),
     );
   }

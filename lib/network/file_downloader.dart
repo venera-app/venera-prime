@@ -7,6 +7,9 @@ import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/io.dart';
 
 class FileDownloader {
+  static const _writeBufferSize = 256 * 1024;
+  static const _statusSaveInterval = Duration(seconds: 1);
+
   final String url;
   final String savePath;
   final int maxConcurrent;
@@ -32,6 +35,8 @@ class FileDownloader {
 
   Timer? _progressTimer;
 
+  final Stopwatch _statusSaveStopwatch = Stopwatch()..start();
+
   final _activeDownloads = <Future<void>>{};
 
   late List<_DownloadBlock> _blocks;
@@ -39,6 +44,16 @@ class FileDownloader {
   Future<void> _writeStatus() async {
     var file = File("$savePath.download");
     await file.writeAsString(_blocks.map((e) => e.toString()).join("\n"));
+  }
+
+  Future<void> _writeStatusIfDue({bool force = false}) async {
+    if (!force && _statusSaveStopwatch.elapsed < _statusSaveInterval) {
+      return;
+    }
+    await _writeStatus();
+    _statusSaveStopwatch
+      ..reset()
+      ..start();
   }
 
   Future<void> _readStatus() async {
@@ -355,24 +370,26 @@ class FileDownloader {
       throw Exception('Invalid Content-Length for block $expectedStart-$end');
     }
 
-    var buffer = <int>[];
+    var buffer = BytesBuilder(copy: false);
     var received = 0;
-    Future<void> flushBuffer() async {
+    Future<void> flushBuffer({bool forceStatus = false}) async {
       if (buffer.isEmpty) return;
       while (_isWriting) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       _isWriting = true;
       try {
-        if (received + buffer.length > expectedLength) {
+        final bytes = buffer.takeBytes();
+        if (received + bytes.length > expectedLength) {
           throw Exception('Range response exceeded requested length');
         }
         await _file!.setPosition(expectedStart + received);
-        await _file!.writeFrom(buffer);
-        received += buffer.length;
-        _currentBytes += buffer.length;
-        buffer = <int>[];
-        await _writeStatus();
+        await _file!.writeFrom(bytes);
+        received += bytes.length;
+        block.downloadedBytes += bytes.length;
+        _currentBytes += bytes.length;
+        buffer = BytesBuilder(copy: false);
+        await _writeStatusIfDue(force: forceStatus);
       } finally {
         _isWriting = false;
       }
@@ -381,16 +398,15 @@ class FileDownloader {
     try {
       await for (var data in res.data!.stream) {
         if (_canceled) return;
-        buffer.addAll(data);
-        if (buffer.length >= 16 * 1024) await flushBuffer();
+        buffer.add(data);
+        if (buffer.length >= _writeBufferSize) await flushBuffer();
       }
-      await flushBuffer();
+      await flushBuffer(forceStatus: true);
       if (received != expectedLength) {
         throw Exception(
           'Range response length mismatch: expected $expectedLength, got $received',
         );
       }
-      block.downloadedBytes += received;
     } finally {
       block.downloading = false;
     }

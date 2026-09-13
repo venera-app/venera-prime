@@ -330,7 +330,9 @@ class _ReadingStatisticsPreviewState extends State<_ReadingStatisticsPreview> {
               leading: const Icon(Icons.insights_outlined),
               title: Text('Reading statistics'.tl),
               subtitle: Text(
-                '${'Last 7 days'.tl}: ${formatReadingDuration(weekTotal)}',
+                manager.isRecordingEnabled
+                    ? '${'Last 7 days'.tl}: ${formatReadingDuration(weekTotal)}'
+                    : 'Reading statistics paused'.tl,
               ),
               trailing: const Icon(Icons.arrow_right),
               onTap: () => context.to(() => const ReadingStatisticsPage()),

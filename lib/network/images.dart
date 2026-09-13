@@ -12,8 +12,10 @@ import 'app_dio.dart';
 
 abstract class ImageDownloader {
   static Stream<ImageDownloadProgress> loadThumbnail(
-      String url, String? sourceKey,
-      [String? cid]) async* {
+    String url,
+    String? sourceKey, [
+    String? cid,
+  ]) async* {
     final cacheKey = "$url@$sourceKey${cid != null ? '@$cid' : ''}";
     final cache = await CacheManager().findCache(cacheKey);
 
@@ -25,6 +27,7 @@ abstract class ImageDownloader {
           totalBytes: data.length,
           imageBytes: data,
         );
+        return;
       } else {
         await CacheManager().delete(cacheKey);
       }
@@ -44,25 +47,29 @@ abstract class ImageDownloader {
     if (((configs['url'] as String?) ?? url).startsWith('cover.') &&
         sourceKey != null) {
       var comicSource = ComicSource.find(sourceKey);
-      if(comicSource != null) {
+      if (comicSource != null) {
         var comicInfo = await comicSource.loadComicInfo!(cid!);
         yield* loadThumbnail(comicInfo.data.cover, sourceKey);
         return;
       }
     }
 
-    var dio = AppDio(BaseOptions(
-      headers: Map<String, dynamic>.from(configs['headers']),
-      method: configs['method'] ?? 'GET',
-      responseType: ResponseType.stream,
-    ));
+    var dio = AppDio(
+      BaseOptions(
+        headers: Map<String, dynamic>.from(configs['headers']),
+        method: configs['method'] ?? 'GET',
+        responseType: ResponseType.stream,
+      ),
+    );
 
     String requestUrl = configs['url'] ?? url;
     if (requestUrl.startsWith('//')) {
       requestUrl = 'https:$requestUrl';
     }
-    var req = await dio.request<ResponseBody>(requestUrl,
-        data: configs['data']);
+    var req = await dio.request<ResponseBody>(
+      requestUrl,
+      data: configs['data'],
+    );
     if ((req.statusCode ?? 0) >= 400) {
       throw Exception("Invalid Status Code: ${req.statusCode}");
     }
@@ -71,32 +78,40 @@ abstract class ImageDownloader {
     if (expectedBytes == -1) {
       expectedBytes = null;
     }
-    var buffer = <int>[];
+    final buffer = BytesBuilder(copy: false);
+    var receivedBytes = 0;
     await for (var data in stream) {
-      buffer.addAll(data);
+      buffer.add(data);
+      receivedBytes += data.length;
       if (expectedBytes != null) {
         yield ImageDownloadProgress(
-          currentBytes: buffer.length,
+          currentBytes: receivedBytes,
           totalBytes: expectedBytes,
         );
       }
     }
 
+    var imageBytes = buffer.takeBytes();
+
     if (configs['onResponse'] is JSInvokable) {
-      final uint8List = Uint8List.fromList(buffer);
-      buffer = (configs['onResponse'] as JSInvokable)([uint8List]);
+      final result = (configs['onResponse'] as JSInvokable)([imageBytes]);
+      if (result is! List<int>) {
+        throw "Error: Invalid onResponse result.";
+      }
+      imageBytes = result is Uint8List ? result : Uint8List.fromList(result);
       (configs['onResponse'] as JSInvokable).free();
     }
 
-    await CacheManager().writeCache(cacheKey, buffer);
+    await CacheManager().writeCache(cacheKey, imageBytes);
     yield ImageDownloadProgress(
-      currentBytes: buffer.length,
-      totalBytes: buffer.length,
-      imageBytes: Uint8List.fromList(buffer),
+      currentBytes: imageBytes.length,
+      totalBytes: imageBytes.length,
+      imageBytes: imageBytes,
     );
   }
 
-  static final _loadingImages = <String, _StreamWrapper<ImageDownloadProgress>>{};
+  static final _loadingImages =
+      <String, _StreamWrapper<ImageDownloadProgress>>{};
 
   /// Cancel all loading images.
   static void cancelAllLoadingImages() {
@@ -109,7 +124,11 @@ abstract class ImageDownloader {
   /// Load a comic image from the network or cache.
   /// The function will prevent multiple requests for the same image.
   static Stream<ImageDownloadProgress> loadComicImage(
-      String imageKey, String? sourceKey, String cid, String eid) {
+    String imageKey,
+    String? sourceKey,
+    String cid,
+    String eid,
+  ) {
     final cacheKey = "$imageKey@$sourceKey@$cid@$eid";
     if (_loadingImages.containsKey(cacheKey)) {
       return _loadingImages[cacheKey]!.stream;
@@ -125,12 +144,28 @@ abstract class ImageDownloader {
   }
 
   static Stream<ImageDownloadProgress> loadComicImageUnwrapped(
-      String imageKey, String? sourceKey, String cid, String eid) {
-    return _loadComicImage(imageKey, sourceKey, cid, eid);
+    String imageKey,
+    String? sourceKey,
+    String cid,
+    String eid, {
+    bool cacheResult = true,
+  }) {
+    return _loadComicImage(
+      imageKey,
+      sourceKey,
+      cid,
+      eid,
+      cacheResult: cacheResult,
+    );
   }
 
   static Stream<ImageDownloadProgress> _loadComicImage(
-      String imageKey, String? sourceKey, String cid, String eid) async* {
+    String imageKey,
+    String? sourceKey,
+    String cid,
+    String eid, {
+    bool cacheResult = true,
+  }) async* {
     final cacheKey = "$imageKey@$sourceKey@$cid@$eid";
     final cache = await CacheManager().findCache(cacheKey);
 
@@ -142,6 +177,7 @@ abstract class ImageDownloader {
           totalBytes: data.length,
           imageBytes: data,
         );
+        return;
       } else {
         await CacheManager().delete(cacheKey);
       }
@@ -152,16 +188,18 @@ abstract class ImageDownloader {
     var configs = <String, dynamic>{};
     if (sourceKey != null) {
       var comicSource = ComicSource.find(sourceKey);
-      configs = (await comicSource!.getImageLoadingConfig
-              ?.call(imageKey, cid, eid)) ??
+      configs =
+          (await comicSource!.getImageLoadingConfig?.call(
+            imageKey,
+            cid,
+            eid,
+          )) ??
           {};
     }
     var retryLimit = 5;
     while (true) {
       try {
-        configs['headers'] ??= {
-          'user-agent': webUA,
-        };
+        configs['headers'] ??= {'user-agent': webUA};
 
         if (configs['onLoadFailed'] is JSInvokable) {
           onLoadFailed = () async {
@@ -174,14 +212,18 @@ abstract class ImageDownloader {
           };
         }
 
-        var dio = AppDio(BaseOptions(
-          headers: configs['headers'],
-          method: configs['method'] ?? 'GET',
-          responseType: ResponseType.stream,
-        ));
+        var dio = AppDio(
+          BaseOptions(
+            headers: configs['headers'],
+            method: configs['method'] ?? 'GET',
+            responseType: ResponseType.stream,
+          ),
+        );
 
-        var req = await dio.request<ResponseBody>(configs['url'] ?? imageKey,
-            data: configs['data']);
+        var req = await dio.request<ResponseBody>(
+          configs['url'] ?? imageKey,
+          data: configs['data'],
+        );
         if ((req.statusCode ?? 0) >= 400) {
           throw Exception("Invalid Status Code: ${req.statusCode}");
         }
@@ -190,49 +232,49 @@ abstract class ImageDownloader {
         if (expectedBytes == -1) {
           expectedBytes = null;
         }
-        var buffer = <int>[];
+        final buffer = BytesBuilder(copy: false);
+        var receivedBytes = 0;
         await for (var data in stream) {
-          buffer.addAll(data);
+          buffer.add(data);
+          receivedBytes += data.length;
           yield ImageDownloadProgress(
-            currentBytes: buffer.length,
+            currentBytes: receivedBytes,
             totalBytes: expectedBytes,
           );
         }
 
+        var imageData = buffer.takeBytes();
+
         if (configs['onResponse'] is JSInvokable) {
-          dynamic result = (configs['onResponse'] as JSInvokable)([Uint8List.fromList(buffer)]);
+          dynamic result = (configs['onResponse'] as JSInvokable)([imageData]);
           if (result is Future) {
             result = await result;
           }
           if (result is List<int>) {
-            buffer = result;
+            imageData = result is Uint8List
+                ? result
+                : Uint8List.fromList(result);
           } else {
             throw "Error: Invalid onResponse result.";
           }
           (configs['onResponse'] as JSInvokable).free();
         }
 
-        Uint8List data;
-        if (buffer is Uint8List) {
-          data = buffer;
-        } else {
-          data = Uint8List.fromList(buffer);
-          buffer.clear();
-        }
-
         if (configs['modifyImage'] != null) {
           var newData = await modifyImageWithScript(
-            data,
+            imageData,
             configs['modifyImage'],
           );
-          data = newData;
+          imageData = newData;
         }
 
-        await CacheManager().writeCache(cacheKey, data);
+        if (cacheResult) {
+          await CacheManager().writeCache(cacheKey, imageData);
+        }
         yield ImageDownloadProgress(
-          currentBytes: data.length,
-          totalBytes: data.length,
-          imageBytes: data,
+          currentBytes: imageData.length,
+          totalBytes: imageData.length,
+          imageBytes: imageData,
         );
         return;
       } catch (e) {
@@ -283,15 +325,13 @@ class _StreamWrapper<T> {
           }
         }
       }
-    }
-    catch (e) {
+    } catch (e) {
       for (var controller in controllers) {
         if (!controller.isClosed) {
           controller.addError(e);
         }
       }
-    }
-    finally {
+    } finally {
       for (var controller in controllers) {
         if (!controller.isClosed) {
           controller.close();
