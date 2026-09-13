@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/log.dart';
@@ -58,6 +59,16 @@ class ReadingStatisticsManager with ChangeNotifier {
   late Database _db;
   bool isInitialized = false;
   Future<void>? _initializing;
+
+  bool get isRecordingEnabled =>
+      appdata.settings['recordReadingStatistics'] != false;
+
+  void setRecordingEnabled(bool enabled) {
+    if (isRecordingEnabled == enabled) return;
+    appdata.settings['recordReadingStatistics'] = enabled;
+    unawaited(appdata.saveData(false));
+    notifyListeners();
+  }
 
   Future<void> init() => _initializing ??= _initWithReset();
 
@@ -123,7 +134,11 @@ class ReadingStatisticsManager with ChangeNotifier {
     required DateTime startedAt,
     required DateTime endedAt,
   }) {
-    if (!isInitialized || !endedAt.isAfter(startedAt)) return;
+    if (!isInitialized ||
+        !isRecordingEnabled ||
+        !endedAt.isAfter(startedAt)) {
+      return;
+    }
     final type = _typeForComic(comic);
     var cursor = startedAt;
     while (cursor.isBefore(endedAt)) {
@@ -203,6 +218,21 @@ class ReadingStatisticsManager with ChangeNotifier {
         )
         .map(ReadingStatistic.fromRow)
         .toList();
+  }
+
+  void deleteComic(String comicId, ComicType comicType) {
+    if (!isInitialized) return;
+    _db.execute(
+      'DELETE FROM reading_statistics WHERE comic_id = ? AND comic_type = ?;',
+      [comicId, comicType.value],
+    );
+    notifyListeners();
+  }
+
+  void clear() {
+    if (!isInitialized) return;
+    _db.execute('DELETE FROM reading_statistics;');
+    notifyListeners();
   }
 
   void close() {

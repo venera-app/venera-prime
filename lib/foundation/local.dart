@@ -406,13 +406,6 @@ class LocalManager with ChangeNotifier {
     }
     await _checkPathValidation();
     _checkNoMedia();
-    // Download task metadata references source definitions, but it is not
-    // required to render the first frame. Restore it once sources are ready.
-    unawaited(
-      ComicSourceManager().ensureInit().then((_) {
-        restoreDownloadingTasks();
-      }),
-    );
     isInitialized = true;
   }
 
@@ -984,8 +977,18 @@ class LocalManager with ChangeNotifier {
   }
 
   Future<void> _taskSaveTail = Future<void>.value();
+  Timer? _scheduledTaskSave;
+
+  void scheduleCurrentDownloadingTasksSave() {
+    _scheduledTaskSave ??= Timer(const Duration(seconds: 1), () {
+      _scheduledTaskSave = null;
+      unawaited(saveCurrentDownloadingTasks());
+    });
+  }
 
   Future<void> saveCurrentDownloadingTasks() {
+    _scheduledTaskSave?.cancel();
+    _scheduledTaskSave = null;
     // Progress and queue changes can save concurrently. Atomic replacement
     // still needs a single writer for the same target file.
     final write = _taskSaveTail.then((_) async {
@@ -1164,7 +1167,8 @@ class LocalManager with ChangeNotifier {
                     if (current == root) break;
                     final parent = path_utils.dirname(current);
                     if (parent == current ||
-                        !path_utils.isWithin(root, parent)) {
+                        (parent != root &&
+                            !path_utils.isWithin(root, parent))) {
                       safe = false;
                       break;
                     }

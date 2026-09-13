@@ -498,9 +498,7 @@ Future<void> importNetworkFolder(
       // 如果是插到最前, 并且是从新到旧, 反转一下
       comics = comics.reversed.toList();
     }
-    for (var c in comics) {
-      LocalFavoritesManager().addComic(resultName, c);
-    }
+    LocalFavoritesManager().addComics(resultName, comics);
     // 延迟一点, 让用户看清楚到底新增了多少
     await Future.delayed(const Duration(milliseconds: 500));
     closeDialog?.call();

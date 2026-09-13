@@ -83,6 +83,8 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   late DisposableBuildContext<State<ComicImage>> _scrollAwareContext;
   Object? _lastException;
   ImageStreamCompleterHandle? _completerHandle;
+  Timer? _loadingProgressTimer;
+  ImageChunkEvent? _pendingLoadingProgress;
 
   static final Map<int, Size> _cache = {};
 
@@ -99,6 +101,7 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   @override
   void dispose() {
     assert(_imageStream != null);
+    _loadingProgressTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _stopListeningToStream();
     _completerHandle?.dispose();
@@ -184,6 +187,9 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
         _handleImageFrame,
         onChunk: _handleImageChunk,
         onError: (Object error, StackTrace? stackTrace) {
+          _loadingProgressTimer?.cancel();
+          _loadingProgressTimer = null;
+          _pendingLoadingProgress = null;
           setState(() {
             _lastException = error;
           });
@@ -194,6 +200,9 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   }
 
   void _handleImageFrame(ImageInfo imageInfo, bool synchronousCall) {
+    _loadingProgressTimer?.cancel();
+    _loadingProgressTimer = null;
+    _pendingLoadingProgress = null;
     setState(() {
       _replaceImage(info: imageInfo);
       _loadingProgress = null;
@@ -204,9 +213,18 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   }
 
   void _handleImageChunk(ImageChunkEvent event) {
-    setState(() {
-      _loadingProgress = event;
-      _lastException = null;
+    _pendingLoadingProgress = event;
+    _loadingProgressTimer ??= Timer(const Duration(milliseconds: 100), () {
+      _loadingProgressTimer = null;
+      final progress = _pendingLoadingProgress;
+      _pendingLoadingProgress = null;
+      if (!mounted || progress == null) {
+        return;
+      }
+      setState(() {
+        _loadingProgress = progress;
+        _lastException = null;
+      });
     });
   }
 
@@ -235,6 +253,10 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
         _replaceImage(info: null);
       });
     }
+
+    _loadingProgressTimer?.cancel();
+    _loadingProgressTimer = null;
+    _pendingLoadingProgress = null;
 
     setState(() {
       _loadingProgress = null;

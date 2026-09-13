@@ -196,10 +196,10 @@ class _AnimatedImageState extends State<AnimatedImage>
   }
 
   void _handleImageChunk(ImageChunkEvent event) {
-    setState(() {
-      _loadingProgress = event;
-      _lastException = null;
-    });
+    // AnimatedImage does not render byte progress. Avoid rebuilding scrolling
+    // cover lists for every network chunk; the completed frame still rebuilds.
+    _loadingProgress = event;
+    _lastException = null;
   }
 
   void _replaceImage({required ImageInfo? info}) {

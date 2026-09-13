@@ -57,4 +57,50 @@ void main() {
       await directory.delete(recursive: true);
     },
   );
+
+  test('deleting a downloaded comic removes its directory', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'venera-local-delete-',
+    );
+    final localDirectory = Directory('${directory.path}/local')
+      ..createSync(recursive: true);
+    App.dataPath = directory.path;
+    File('${directory.path}/local_path').writeAsStringSync(localDirectory.path);
+
+    final comicDirectory = Directory('${localDirectory.path}/cached-comic')
+      ..createSync();
+    File('${comicDirectory.path}/1.jpg').writeAsBytesSync([1]);
+
+    final manager = LocalManager();
+    manager.close();
+    await manager.init();
+    final comic = LocalComic(
+      id: 'network-id',
+      title: 'Cached comic',
+      subtitle: 'Author',
+      tags: const [],
+      directory: 'cached-comic',
+      chapters: null,
+      cover: '1.jpg',
+      comicType: const ComicType(123),
+      downloadedChapters: const [],
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+    await manager.add(comic);
+
+    manager.batchDeleteComics([comic], true, false);
+
+    for (
+      var attempt = 0;
+      attempt < 50 && comicDirectory.existsSync();
+      attempt++
+    ) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(comicDirectory.existsSync(), isFalse);
+    expect(manager.find('network-id', const ComicType(123)), isNull);
+
+    manager.close();
+    await directory.delete(recursive: true);
+  });
 }

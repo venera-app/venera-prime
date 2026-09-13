@@ -244,6 +244,7 @@ class Appdata with Init {
   static const _disableSync = [
     "proxy",
     "authorizationRequired",
+    "recordReadingStatistics",
     "customImageProcessing",
     "webdav",
     "disableSyncFields",
@@ -432,6 +433,7 @@ class Settings with ChangeNotifier {
     'enableClockAndBatteryInfoInReader': true,
     'quickCollectImage': 'No', // No, DoubleTap, Swipe
     'authorizationRequired': false,
+    'recordReadingStatistics': true,
     'onClickFavorite': 'viewDetail', // viewDetail, read
     'enableDnsOverrides': false,
     'dnsOverrides': {},

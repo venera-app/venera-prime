@@ -33,6 +33,30 @@ class _ReadingStatisticsPageState extends State<ReadingStatisticsPage> {
     if (mounted) setState(() {});
   }
 
+  void _clearAll() {
+    showConfirmDialog(
+      context: context,
+      title: 'Clear all statistics'.tl,
+      content: 'Clear all reading statistics?'.tl,
+      confirmText: 'Clear',
+      btnColor: Theme.of(context).colorScheme.error,
+      onConfirm: manager.clear,
+    );
+  }
+
+  void _deleteComic(ReadingStatistic item) {
+    showConfirmDialog(
+      context: context,
+      title: 'Delete statistics'.tl,
+      content: "Delete reading statistics for '@n'?".tlParams({
+        'n': item.title,
+      }),
+      confirmText: 'Delete',
+      btnColor: Theme.of(context).colorScheme.error,
+      onConfirm: () => manager.deleteComic(item.comicId, item.comicType),
+    );
+  }
+
   List<int> _week(DateTime now) => [
     for (var i = 6; i >= 0; i--)
       manager.durationForDay(DateTime(now.year, now.month, now.day - i)),
@@ -81,12 +105,47 @@ class _ReadingStatisticsPageState extends State<ReadingStatisticsPage> {
     final week = _week(now);
     final weekTotal = week.fold(0, (sum, value) => sum + value);
     final maximum = week.fold(0, (max, value) => value > max ? value : max);
+    final total = manager.totalDuration();
     final comics = _aggregateRecent();
 
     return Scaffold(
       body: SmoothCustomScrollView(
         slivers: [
-          SliverAppbar(title: Text('Reading statistics'.tl)),
+          SliverAppbar(
+            title: Text('Reading statistics'.tl),
+            actions: [
+              if (total > 0)
+                IconButton(
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  tooltip: 'Clear all statistics'.tl,
+                  onPressed: _clearAll,
+                ),
+            ],
+          ),
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: SwitchListTile(
+                secondary: Icon(
+                  manager.isRecordingEnabled
+                      ? Icons.shield_outlined
+                      : Icons.shield_moon_outlined,
+                ),
+                title: Text('Record reading statistics'.tl),
+                subtitle: manager.isRecordingEnabled
+                    ? null
+                    : Text(
+                        'Paused; new reading activity will not be recorded.'.tl,
+                      ),
+                value: manager.isRecordingEnabled,
+                onChanged: manager.setRecordingEnabled,
+              ),
+            ),
+          ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             sliver: SliverToBoxAdapter(
@@ -112,7 +171,7 @@ class _ReadingStatisticsPageState extends State<ReadingStatisticsPage> {
                     child: _SummaryMetric(
                       icon: Icons.auto_graph_outlined,
                       label: 'Total'.tl,
-                      value: formatReadingDuration(manager.totalDuration()),
+                      value: formatReadingDuration(total),
                     ),
                   ),
                 ],
@@ -254,9 +313,34 @@ class _ReadingStatisticsPageState extends State<ReadingStatisticsPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: Text(
-                    formatReadingDuration(item.durationSeconds),
-                    style: ts.s12,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        formatReadingDuration(item.durationSeconds),
+                        style: ts.s12,
+                      ),
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert),
+                        tooltip: 'Delete statistics'.tl,
+                        onSelected: (_) => _deleteComic(item),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                                const SizedBox(width: 12),
+                                Text('Delete statistics'.tl),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 );
               },

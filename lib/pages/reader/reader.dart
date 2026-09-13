@@ -206,7 +206,9 @@ class _ReaderState extends State<Reader>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _readingSessionStarted = DateTime.now();
+    _readingSessionStarted = ReadingStatisticsManager().isRecordingEnabled
+        ? DateTime.now()
+        : null;
     mode = ReaderMode.fromKey(
       appdata.settings.getReaderSetting(cid, type.sourceKey, 'readerMode'),
     );
@@ -317,7 +319,8 @@ class _ReaderState extends State<Reader>
         state == AppLifecycleState.hidden) {
       _commitReadingSession();
     } else if (state == AppLifecycleState.resumed &&
-        _readingSessionStarted == null) {
+        _readingSessionStarted == null &&
+        ReadingStatisticsManager().isRecordingEnabled) {
       _readingSessionStarted = DateTime.now();
     }
   }
