@@ -96,7 +96,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return IconTheme(
+    final body = IconTheme(
       data: IconThemeData(color: Theme.of(context).colorScheme.secondary),
       child: Stack(
         children: [
@@ -116,6 +116,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
           ),
         ],
       ),
+    );
+    final handlesNetworkBack = folder != null && isNetwork;
+    return PopScope(
+      canPop: !handlesNetworkBack,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && handlesNetworkBack) {
+          setFolder(false, null);
+        }
+      },
+      child: body,
     );
   }
 
