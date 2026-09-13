@@ -781,8 +781,11 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
       ),
     );
     return PopScope(
-      canPop: !multiSelectMode && !searchMode,
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
         if (multiSelectMode) {
           setState(() {
             multiSelectMode = false;
@@ -794,6 +797,8 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
             keyword = "";
             updateComics();
           });
+        } else {
+          favPage.setFolder(false, null);
         }
       },
       child: body,
