@@ -11,6 +11,7 @@ import '../foundation/app.dart';
 import 'explore_page.dart';
 import 'favorites/favorites_page.dart';
 import 'home_page.dart';
+import 'toolbox.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -104,6 +105,13 @@ class _MainPageState extends State<MainPage> {
               to(() => const SearchPage(), preventDuplicate: true);
             },
           ),
+        PaneActionEntry(
+          icon: Icons.handyman_outlined,
+          label: "Toolbox".tl,
+          onTap: () {
+            showToolbox(context);
+          },
+        ),
         PaneActionEntry(
           icon: Icons.settings,
           label: "Settings".tl,

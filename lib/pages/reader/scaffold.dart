@@ -121,6 +121,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
   bool _orientationInitialized = false;
   bool _restoreOrientationOnExit = false;
+  bool _rememberOrientation = false;
   bool? _entryWasPortrait;
 
   @override
@@ -130,8 +131,9 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     _orientationInitialized = true;
     _entryWasPortrait =
         MediaQuery.orientationOf(context) == Orientation.portrait;
-    _restoreOrientationOnExit = ReaderOrientationMemory.enabled;
-    if (_restoreOrientationOnExit) {
+    _restoreOrientationOnExit = ReaderOrientationMemory.restoresOnExit;
+    _rememberOrientation = ReaderOrientationMemory.remembersOrientation;
+    if (_rememberOrientation) {
       rotation = ReaderOrientationMemory.modeFor(
         comicId: context.reader.cid,
         sourceKey: context.reader.type.sourceKey,
@@ -170,6 +172,20 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
   void update() {
     setState(() {});
+  }
+
+  void updateOrientationBehavior() {
+    setState(() {
+      _restoreOrientationOnExit = ReaderOrientationMemory.restoresOnExit;
+      _rememberOrientation = ReaderOrientationMemory.remembersOrientation;
+    });
+    if (_rememberOrientation) {
+      ReaderOrientationMemory.remember(
+        comicId: context.reader.cid,
+        sourceKey: context.reader.type.sourceKey,
+        mode: rotation,
+      );
+    }
   }
 
   @override
@@ -495,7 +511,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                 rotation = rotation.next;
               });
               unawaited(ReaderOrientationSystem.apply(rotation));
-              if (_restoreOrientationOnExit) {
+              if (_rememberOrientation) {
                 ReaderOrientationMemory.remember(
                   comicId: context.reader.cid,
                   sourceKey: context.reader.type.sourceKey,
@@ -757,6 +773,9 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           }
           if (key == "quickCollectImage") {
             addDragListener();
+          }
+          if (key == ReaderOrientationMemory.behaviorSettingKey) {
+            updateOrientationBehavior();
           }
           if (key == "showChapterComments" ||
               key == "showChapterCommentsAtEnd") {

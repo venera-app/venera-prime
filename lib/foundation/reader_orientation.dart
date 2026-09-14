@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import 'appdata.dart';
+import 'reader_orientation_behavior.dart';
+
+export 'reader_orientation_behavior.dart';
 
 enum ReaderOrientationMode {
   automatic,
@@ -36,14 +39,20 @@ enum ReaderOrientationMode {
 }
 
 class ReaderOrientationMemory {
+  static const behaviorSettingKey = ReaderOrientationBehavior.settingKey;
   static const globalModeKey = 'readerOrientationMode';
   static const comicModesKey = 'readerOrientationModesByComic';
 
-  static bool get enabled =>
-      appdata.settings['rememberReaderOrientation'] == true;
+  static ReaderOrientationBehavior get behavior =>
+      ReaderOrientationBehavior.fromStorage(
+        appdata.settings[behaviorSettingKey],
+      );
 
-  static bool get perComic =>
-      enabled && appdata.settings['rememberReaderOrientationPerComic'] == true;
+  static bool get restoresOnExit => behavior.restoresOnExit;
+
+  static bool get remembersOrientation => behavior.remembersOrientation;
+
+  static bool get perComic => behavior.remembersPerComic;
 
   static String comicKey(String comicId, String sourceKey) =>
       jsonEncode([sourceKey, comicId]);
@@ -81,6 +90,7 @@ class ReaderOrientationMemory {
     required String sourceKey,
     required ReaderOrientationMode mode,
   }) {
+    if (!remembersOrientation) return;
     rememberInData(
       appdata.implicitData,
       comicId: comicId,

@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/reader_orientation_behavior.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
@@ -251,6 +252,7 @@ class Appdata with Init {
     "deviceId",
     "rememberReaderOrientation",
     "rememberReaderOrientationPerComic",
+    ReaderOrientationBehavior.settingKey,
   ];
 
   /// Sync data from another device
@@ -322,12 +324,33 @@ class Appdata with Init {
     if (!await file.exists()) {
       return;
     }
+    var shouldSaveSettings = false;
     try {
       var json = jsonDecode(await file.readAsString());
       final rawSettings = json is Map ? json['settings'] : null;
       if (rawSettings is Map) {
         for (var entry in _sanitizeSettings(rawSettings).entries) {
           if (entry.value != null) settings[entry.key] = entry.value;
+        }
+        if (!rawSettings.containsKey(ReaderOrientationBehavior.settingKey)) {
+          settings._data[ReaderOrientationBehavior.settingKey] =
+              ReaderOrientationBehavior.fromLegacySettings(
+                rememberOrientation:
+                    rawSettings['rememberReaderOrientation'] == true,
+                rememberPerComic:
+                    rawSettings['rememberReaderOrientationPerComic'] == true,
+              ).storageValue;
+          shouldSaveSettings = true;
+        } else {
+          final normalizedBehavior = ReaderOrientationBehavior.fromStorage(
+            settings._data[ReaderOrientationBehavior.settingKey],
+          ).storageValue;
+          if (settings._data[ReaderOrientationBehavior.settingKey] !=
+              normalizedBehavior) {
+            settings._data[ReaderOrientationBehavior.settingKey] =
+                normalizedBehavior;
+            shouldSaveSettings = true;
+          }
         }
       }
       final loadedHistory = json is Map ? json['searchHistory'] : null;
@@ -357,6 +380,9 @@ class Appdata with Init {
     }
     if (settings["deviceId"]?.toString().isEmpty ?? true) {
       settings._data["deviceId"] = const Uuid().v4();
+      shouldSaveSettings = true;
+    }
+    if (shouldSaveSettings) {
       await saveData(false);
     }
     try {
@@ -459,6 +485,7 @@ class Settings with ChangeNotifier {
     'enableDoubleTapToZoom': true,
     'reverseChapterOrder': false,
     'showSystemStatusBar': false,
+    ReaderOrientationBehavior.settingKey: 'keepAfterExit',
     'rememberReaderOrientation': false,
     'rememberReaderOrientationPerComic': false,
     'comicSpecificSettings': <String, Map<String, dynamic>>{},

@@ -163,40 +163,28 @@ class _ReaderSettingsState extends State<ReaderSettings> {
               Divider().toSliver(),
             ],
           ),
-        if (comicId == null && App.isAndroid)
+        if (App.isAndroid)
           SliverMainAxisGroup(
             slivers: [
-              SwitchListTile(
-                title: Text("Remember screen orientation only in reader".tl),
-                subtitle: Text(
-                  "Restore the previous screen orientation after leaving the reader."
-                      .tl,
-                ),
-                value: appdata.settings['rememberReaderOrientation'] == true,
-                onChanged: (value) {
-                  setState(() {
-                    appdata.settings['rememberReaderOrientation'] = value;
-                  });
-                  appdata.saveData();
+              SelectSetting(
+                title: "Reader screen orientation behavior".tl,
+                settingKey: ReaderOrientationBehavior.settingKey,
+                optionTranslation: {
+                  ReaderOrientationBehavior.keepAfterExit.storageValue:
+                      "Keep rotation after leaving reader".tl,
+                  ReaderOrientationBehavior.sessionOnly.storageValue:
+                      "Restore pre-rotation state after leaving reader".tl,
+                  ReaderOrientationBehavior.rememberGlobally.storageValue:
+                      "Remember for all comics".tl,
+                  ReaderOrientationBehavior.rememberPerComic.storageValue:
+                      "Remember separately for each comic".tl,
                 },
-              ).toSliver(),
-              SwitchListTile(
-                title: Text("Remember screen orientation per comic".tl),
-                subtitle: Text(
-                  "Each comic remembers its own reader orientation.".tl,
-                ),
-                value:
-                    appdata.settings['rememberReaderOrientationPerComic'] ==
-                    true,
-                onChanged: appdata.settings['rememberReaderOrientation'] == true
-                    ? (value) {
-                        setState(() {
-                          appdata.settings['rememberReaderOrientationPerComic'] =
-                              value;
-                        });
-                        appdata.saveData();
-                      }
-                    : null,
+                help:
+                    "Except for keeping rotation after exit, all modes restore the screen orientation from before entering the reader when leaving."
+                        .tl,
+                onChanged: () {
+                  widget.onChanged?.call(ReaderOrientationBehavior.settingKey);
+                },
               ).toSliver(),
               Divider().toSliver(),
             ],
