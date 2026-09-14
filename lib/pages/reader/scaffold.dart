@@ -175,6 +175,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   @override
   Widget build(BuildContext context) {
     final isOnChapterCommentsPage = context.reader.isOnChapterCommentsPage;
+    final showStatusInfo =
+        appdata.settings.getReaderSetting(
+          context.reader.cid,
+          context.reader.type.sourceKey,
+          'enableClockAndBatteryInfoInReader',
+        ) ==
+        true;
     return Stack(
       children: [
         Positioned.fill(
@@ -199,7 +206,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         if (appdata.settings['showPageNumberInReader'] == true &&
             !isOnChapterCommentsPage)
           buildPageInfoText(),
-        if (!isOnChapterCommentsPage) buildStatusInfo(),
+        if (showStatusInfo && !isOnChapterCommentsPage) buildStatusInfo(),
         AnimatedPositioned(
           duration: const Duration(milliseconds: 180),
           right: 16,
@@ -678,21 +685,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   Widget buildStatusInfo() {
-    if (appdata.settings['enableClockAndBatteryInfoInReader']) {
-      return Positioned(
-        bottom: 13,
-        right: 25,
-        child: Row(
-          children: [
-            _ClockWidget(),
-            const SizedBox(width: 10),
-            _BatteryWidget(),
-          ],
-        ),
-      );
-    } else {
-      return const SizedBox.shrink();
-    }
+    return Positioned(
+      bottom: 13,
+      right: 25,
+      child: Row(
+        children: [_ClockWidget(), const SizedBox(width: 10), _BatteryWidget()],
+      ),
+    );
   }
 
   void openChapterDrawer() {
