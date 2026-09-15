@@ -37,6 +37,15 @@ on:
         required: true
         default: true
         type: boolean
+      publish_release:
+        description: 'Publish artifacts to a release after building'
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: 'Existing tag to publish when publish_release is enabled'
+        required: false
+        type: string
   release:
     types: [published]
 
@@ -51,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate version consistency
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: python3 tool/check_version.py
 
   Build_MacOS:
@@ -358,7 +367,7 @@ jobs:
   Release:
     runs-on: ubuntu-22.04
     needs: [Validate_Version, Build_MacOS, Build_IOS, Build_Android, Build_Windows, Build_Linux, Build_Linux_ARM64]
-    if: ${{ always() && github.event_name == 'release' && needs.Validate_Version.result == 'success' }}
+    if: ${{ always() && (github.event_name == 'release' || inputs.publish_release) && needs.Validate_Version.result == 'success' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -367,7 +376,7 @@ jobs:
           path: outputs
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
           files: |
             outputs/*.ipa
             outputs/*.dmg
