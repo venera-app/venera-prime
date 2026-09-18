@@ -509,7 +509,13 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
           ),
           child: ListTile(
             leading: const Icon(Icons.sync),
-            title: Text('Syncing Data'.tl),
+            title: Text(
+              DataSync().isDownloading
+                  ? 'Downloading'.tl
+                  : DataSync().uploadQueued
+                  ? 'Upload queued'.tl
+                  : 'Uploading data...'.tl,
+            ),
             trailing: const CircularProgressIndicator(
               strokeWidth: 2,
             ).fixWidth(18).fixHeight(18),

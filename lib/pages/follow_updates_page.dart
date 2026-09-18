@@ -121,6 +121,18 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
 
   String? get folder => appdata.settings["followUpdatesFolder"];
 
+  void _showUpdateFailures(List<UpdateProgress> failures) {
+    if (!mounted || failures.isEmpty) return;
+    final lines = failures
+        .map((progress) {
+          final name = progress.comic?.name ?? 'Unknown comic';
+          final error = progress.errorMessage ?? 'Unknown error';
+          return '$name\n$error';
+        })
+        .join('\n\n');
+    showDialogMessage(App.rootContext, 'Error'.tl, lines);
+  }
+
   var updatedComics = <FavoriteItemWithUpdateInfo>[];
   var allComics = <FavoriteItemWithUpdateInfo>[];
 
@@ -605,14 +617,20 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
         message: "Updating comics...".tl,
       );
 
-      await for (var progress in updateFolder(folder, true)) {
-        if (isCanceled) {
-          return;
+      final failures = <UpdateProgress>[];
+      try {
+        await for (var progress in updateFolder(folder, true)) {
+          if (isCanceled) continue;
+          if (progress.errorMessage != null) failures.add(progress);
+          if (progress.total > 0) {
+            loadingController.setProgress(progress.current / progress.total);
+          }
         }
-        loadingController.setProgress(progress.current / progress.total);
+      } finally {
+        loadingController.close();
       }
-
-      loadingController.close();
+      if (isCanceled) return;
+      _showUpdateFailures(failures);
     }
 
     setState(() {
@@ -641,16 +659,23 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
     );
 
     int updated = 0;
+    final failures = <UpdateProgress>[];
 
-    await for (var progress in updateFolder(folder!, true)) {
-      if (isCanceled) {
-        return;
+    try {
+      await for (var progress in updateFolder(folder!, true)) {
+        if (isCanceled) continue;
+        if (progress.errorMessage != null) failures.add(progress);
+        if (progress.total > 0) {
+          loadingController.setProgress(progress.current / progress.total);
+        }
+        updated = progress.updated;
       }
-      loadingController.setProgress(progress.current / progress.total);
-      updated = progress.updated;
+    } finally {
+      loadingController.close();
     }
 
-    loadingController.close();
+    if (isCanceled) return;
+    _showUpdateFailures(failures);
 
     if (updated > 0) {
       GlobalState.findOrNull<_FollowUpdatesWidgetState>()?.updateCount();

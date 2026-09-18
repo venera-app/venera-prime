@@ -14,18 +14,40 @@ Future<void> showToolbox(BuildContext context) {
     useRootNavigator: true,
     useSafeArea: true,
     isScrollControlled: true,
+    isDismissible: true,
+    enableDrag: true,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) {
-      return Align(
-        alignment: Alignment.bottomCenter,
-        child: Material(
-          color: Theme.of(sheetContext).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: const _ToolboxSheet(),
-          ),
+      // Keep an explicit full-screen dismiss target behind the sheet. This
+      // makes taps in the upper blank area reliable even when the platform
+      // modal barrier is affected by immersive system insets.
+      return SizedBox.expand(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(sheetContext).pop(),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                height: MediaQuery.sizeOf(sheetContext).height * 0.5,
+                child: Material(
+                  color: Theme.of(sheetContext).colorScheme.surface,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: const _ToolboxSheet(),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     },

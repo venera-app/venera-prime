@@ -239,6 +239,7 @@
     "Saved Failed": "保存失败",
     "Sync Data": "同步数据",
     "Syncing Data": "正在同步数据",
+    "Upload queued": "上传已排队",
     "Data Sync": "数据同步",
     "WebDAV config QR code": "WebDAV 配置二维码",
     "Quickly migrate WebDAV settings to another device.": "快速将 WebDAV 设置迁移到另一台设备",

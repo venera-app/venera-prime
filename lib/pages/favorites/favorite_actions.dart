@@ -184,6 +184,7 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
   var finished = ValueNotifier(0);
 
   var errors = 0;
+  final errorNames = <String>[];
 
   var index = 0;
 
@@ -210,6 +211,10 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
                 Text("$value/${comics.length}"),
                 const SizedBox(height: 4),
                 if (errors > 0) Text("Errors: $errors"),
+                if (errorNames.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(errorNames.join('\n')),
+                ],
               ],
             ).paddingHorizontal(16),
             actions: [
@@ -242,8 +247,9 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
       if (index + i >= comics.length) break;
       futures.add(updateSingleComic(index + i).then((v) {
         finished.value++;
-      }, onError: (_) {
+      }, onError: (error, _) {
         errors++;
+        errorNames.add(comics[index + i].name);
         finished.value++;
       }));
     }
@@ -253,6 +259,14 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
   }
 
   return comics;
+}
+
+/// Refresh metadata for every local favorites folder in sequence.
+Future<void> updateAllComicsInfo() async {
+  final folders = LocalFavoritesManager().folderNames.toList();
+  for (final folder in folders) {
+    await updateComicsInfo(folder);
+  }
 }
 
 Future<void> sortFolders() async {

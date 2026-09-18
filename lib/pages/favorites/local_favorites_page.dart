@@ -398,6 +398,19 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                   },
                 ),
               ),
+              if (isAllFolder)
+                MenuButton(
+                  entries: [
+                    MenuEntry(
+                      icon: Icons.update,
+                      text: "Update Comics Info".tl,
+                      onClick: () async {
+                        await updateAllComicsInfo();
+                        if (mounted) updateComics();
+                      },
+                    ),
+                  ],
+                ),
               if (!isAllFolder)
                 MenuButton(
                   entries: [

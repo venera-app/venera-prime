@@ -72,6 +72,13 @@ class DataSync with ChangeNotifier {
 
   bool _haveWaitingTask = false;
 
+  // A local change can arrive while a download is applying remote data. Keep
+  // that request so the downloaded state is uploaded afterwards instead of
+  // silently dropping it.
+  bool _uploadAfterDownload = false;
+
+  bool get uploadQueued => _uploadAfterDownload;
+
   String? _lastError;
 
   String? get lastError => _lastError;
@@ -97,7 +104,11 @@ class DataSync with ChangeNotifier {
   }
 
   Future<Res<bool>> uploadData() async {
-    if (isDownloading) return const Res(true);
+    if (isDownloading) {
+      _uploadAfterDownload = true;
+      notifyListeners();
+      return const Res(true);
+    }
     if (_haveWaitingTask) return const Res(true);
     while (isUploading) {
       _haveWaitingTask = true;
@@ -236,6 +247,11 @@ class DataSync with ChangeNotifier {
     } finally {
       _isDownloading = false;
       notifyListeners();
+      if (_uploadAfterDownload && isEnabled) {
+        _uploadAfterDownload = false;
+        notifyListeners();
+        Future.microtask(uploadData);
+      }
     }
   }
 }
