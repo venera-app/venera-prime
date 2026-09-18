@@ -369,6 +369,7 @@ jobs:
     needs: [Validate_Version, Build_MacOS, Build_IOS, Build_Android, Build_Windows, Build_Linux, Build_Linux_ARM64]
     if: ${{ always() && (github.event_name == 'release' || inputs.publish_release) && needs.Validate_Version.result == 'success' }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: "*_build"
