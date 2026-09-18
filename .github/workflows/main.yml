@@ -377,6 +377,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
+          body_path: doc/release-2.4.1.md
           files: |
             outputs/*.ipa
             outputs/*.dmg
