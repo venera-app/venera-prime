@@ -15,7 +15,8 @@ class ComicType {
     if(this == local) {
       return "local";
     } else {
-      return comicSource!.key;
+      // The source may not be loaded yet or may have been removed.
+      return comicSource?.key ?? "Unknown:$value";
     }
   }
 
