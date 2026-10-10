@@ -934,7 +934,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                     appdata.settings['webdav'] = [];
                     appdata.implicitData['webdavAutoSync'] = false;
                     appdata.writeImplicitData();
-                    appdata.saveData();
+                    appdata.saveData(false);
                     context.showMessage(message: "Saved".tl);
                     App.rootPop();
                     return;
@@ -946,7 +946,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                   appdata.writeImplicitData();
 
                   if (!autoSync) {
-                    appdata.saveData();
+                    appdata.saveData(false);
                     context.showMessage(message: "Saved".tl);
                     App.rootPop();
                     return;
@@ -956,7 +956,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                     isTesting = true;
                   });
                   var testResult = upload
-                      ? await DataSync().uploadData()
+                      ? await DataSync().uploadData(force: true)
                       : await DataSync().downloadData();
                   if (testResult.error) {
                     setState(() {
@@ -965,11 +965,11 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                     appdata.settings['webdav'] = oldConfig;
                     appdata.implicitData['webdavAutoSync'] = oldAutoSync;
                     appdata.writeImplicitData();
-                    appdata.saveData();
+                    appdata.saveData(false);
                     context.showMessage(message: testResult.errorMessage!);
                     context.showMessage(message: "Saved Failed".tl);
                   } else {
-                    appdata.saveData();
+                    appdata.saveData(false);
                     context.showMessage(message: "Saved".tl);
                     App.rootPop();
                   }

@@ -98,6 +98,16 @@ class _ReaderSettingsState extends State<ReaderSettings> {
         !isEnabledSpecificSettings &&
         appdata.settings.isDeviceSpecificSettingsEnabled();
 
+    dynamic readerSetting(String name) => comicId != null && sourceKey != null
+        ? appdata.settings.getReaderSetting(comicId, sourceKey, name)
+        : appdata.settings.getDeviceReaderSetting(name);
+    final effectiveMode = readerSetting('readerMode') as String;
+    final horizontalGallery =
+        effectiveMode == 'galleryLeftToRight' ||
+        effectiveMode == 'galleryRightToLeft';
+    final twoPageSpread =
+        horizontalGallery && readerSetting('readerTwoPageSpread') == true;
+
     return SmoothCustomScrollView(
       slivers: [
         SliverAppbar(title: Text("Reading".tl)),
@@ -322,6 +332,22 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
+        SliverAnimatedVisibility(
+          visible: horizontalGallery,
+          child: _SwitchSetting(
+            title: "Two-page spread".tl,
+            subtitle:
+                "Show two pages side by side in portrait and landscape".tl,
+            settingKey: 'readerTwoPageSpread',
+            onChanged: () {
+              setState(() {});
+              widget.onChanged?.call('readerTwoPageSpread');
+            },
+            comicId: isEnabledSpecificSettings ? widget.comicId : null,
+            comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+            useDeviceSettings: useDeviceSpecificSettings,
+          ),
+        ),
         _SliderSetting(
           title: "Auto page turning interval".tl,
           settingsIndex: "autoPageTurningInterval",
@@ -337,7 +363,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
         SliverAnimatedVisibility(
-          visible: appdata.settings['readerMode']!.startsWith('gallery'),
+          visible: effectiveMode.startsWith('gallery') && !twoPageSpread,
           child: _SliderSetting(
             title:
                 "The number of pic in screen for landscape (Only Gallery Mode)"
@@ -356,7 +382,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           ),
         ),
         SliverAnimatedVisibility(
-          visible: appdata.settings['readerMode']!.startsWith('gallery'),
+          visible: effectiveMode.startsWith('gallery') && !twoPageSpread,
           child: _SliderSetting(
             title:
                 "The number of pic in screen for portrait (Only Gallery Mode)"
@@ -375,9 +401,10 @@ class _ReaderSettingsState extends State<ReaderSettings> {
         ),
         SliverAnimatedVisibility(
           visible:
-              appdata.settings['readerMode']!.startsWith('gallery') &&
-              (appdata.settings['readerScreenPicNumberForLandscape'] > 1 ||
-                  appdata.settings['readerScreenPicNumberForPortrait'] > 1),
+              effectiveMode.startsWith('gallery') &&
+              (twoPageSpread ||
+                  readerSetting('readerScreenPicNumberForLandscape') > 1 ||
+                  readerSetting('readerScreenPicNumberForPortrait') > 1),
           child: _SwitchSetting(
             title: "Show single image on first page".tl,
             settingKey: "showSingleImageOnFirstPage",

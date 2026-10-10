@@ -7,6 +7,7 @@ import 'package:shimmer_animation/shimmer_animation.dart';
 import 'package:sliver_tools/sliver_tools.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
+import 'package:venera/components/comic_author_link.dart';
 import 'package:venera/components/rich_comment_content.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
@@ -343,8 +344,8 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
               children: [
                 SelectableText(comic.title.displayText, style: ts.s18),
                 if (comic.subTitle != null)
-                  SelectableText(
-                    comic.subTitle!.displayText,
+                  ComicAuthorLink(
+                    comic: comic,
                     style: ts.s14,
                   ).paddingVertical(4),
                 Text(

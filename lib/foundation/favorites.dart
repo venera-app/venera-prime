@@ -507,8 +507,14 @@ class LocalFavoritesManager with ChangeNotifier {
         folderToOrder[folder] = 0;
       }
     }
+    // Legacy backups may omit folder_order rows or contain tied values.
+    // Keep SQLite's original table order for ties; List.sort is not stable.
+    final originalOrder = folders.asMap().map((i, name) => MapEntry(name, i));
     folders.sort((a, b) {
-      return folderToOrder[a]! - folderToOrder[b]!;
+      final order = folderToOrder[a]!.compareTo(folderToOrder[b]!);
+      return order != 0
+          ? order
+          : originalOrder[a]!.compareTo(originalOrder[b]!);
     });
     return folders;
   }

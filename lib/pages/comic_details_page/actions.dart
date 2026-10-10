@@ -302,8 +302,10 @@ abstract mixin class _ComicPageActions {
   }
 
   void onTapTag(String tag, String namespace) {
-    var target = comicSource.handleClickTagEvent?.call(namespace, tag);
-    var context = App.mainNavigatorKey!.currentContext!;
+    final target = isAuthorNamespace(namespace)
+        ? authorTagTarget(comicSource, namespace, tag)
+        : comicSource.handleClickTagEvent?.call(namespace, tag);
+    final context = App.mainNavigatorKey?.currentContext ?? App.rootContext;
     target?.jump(context);
   }
 

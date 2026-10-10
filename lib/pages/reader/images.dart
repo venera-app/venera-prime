@@ -147,7 +147,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
             true;
         return _GalleryMode(
           key: Key(
-            '${reader.mode.key}_${reader.imagesPerPage}_${showComments}_$showCommentsAtEnd',
+            '${reader.mode.key}_${reader.imagesPerPage}_${reader.twoPageSpread}_${reader.showSingleImageOnFirstPage()}_${showComments}_$showCommentsAtEnd',
           ),
         );
       } else {
@@ -297,91 +297,31 @@ class _GalleryModeState extends State<_GalleryMode>
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (event) {
-        fingers++;
-      },
-      onPointerUp: (event) {
-        fingers--;
-      },
-      onPointerCancel: (event) {
-        fingers--;
-      },
-      onPointerMove: (event) {
-        if (isLongPressing) {
-          var controller = photoViewControllers[reader.page]!;
-          Offset value = event.delta;
-          if (isLongPressing) {
-            controller.updateMultiple(position: controller.position + value);
-          }
-        }
-      },
-      child: PhotoViewGallery.builder(
-        backgroundDecoration: BoxDecoration(
-          color: readerBackgroundColor(
-            context,
-            reader.cid,
-            reader.type.sourceKey,
-          ),
-        ),
-        reverse: reader.mode == ReaderMode.galleryRightToLeft,
-        scrollDirection: reader.mode == ReaderMode.galleryTopToBottom
-            ? Axis.vertical
-            : Axis.horizontal,
-        itemCount: totalPages + 2,
-        builder: (BuildContext context, int index) {
-          if (index == 0 || index == totalPages + 1) {
-            return PhotoViewGalleryPageOptions.customChild(
-              child: const SizedBox(),
-            );
-          } else if (isChapterCommentsPage(index)) {
-            return PhotoViewGalleryPageOptions.customChild(
-              child: _buildChapterCommentsPage(),
-            );
-          } else {
-            var (startIndex, endIndex) = getPageImagesRange(index);
-            List<String> pageImages = reader.images!.sublist(
-              startIndex,
-              endIndex,
-            );
-
-            cache(index);
-
-            photoViewControllers[index] ??= PhotoViewController();
-
-            if (reader.imagesPerPage == 1 || pageImages.length == 1) {
-              return PhotoViewGalleryPageOptions(
-                filterQuality: FilterQuality.medium,
-                controller: photoViewControllers[index],
-                imageProvider: _createImageProviderFromKey(
-                  pageImages[0],
-                  context,
-                  startIndex + 1,
-                ),
-                fit: BoxFit.contain,
-                errorBuilder: (_, error, s, retry) {
-                  return NetworkError(message: error.toString(), retry: retry);
-                },
-              );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportSize = constraints.biggest;
+        return Listener(
+          onPointerDown: (event) {
+            fingers++;
+          },
+          onPointerUp: (event) {
+            fingers--;
+          },
+          onPointerCancel: (event) {
+            fingers--;
+          },
+          onPointerMove: (event) {
+            if (isLongPressing) {
+              var controller = photoViewControllers[reader.page]!;
+              Offset value = event.delta;
+              if (isLongPressing) {
+                controller.updateMultiple(
+                  position: controller.position + value,
+                );
+              }
             }
-
-            final viewportSize = MediaQuery.of(context).size;
-            return PhotoViewGalleryPageOptions.customChild(
-              childSize: viewportSize,
-              controller: photoViewControllers[index],
-              minScale: PhotoViewComputedScale.contained * 1.0,
-              maxScale: PhotoViewComputedScale.covered * 10.0,
-              child: buildPageImages(pageImages, startIndex),
-            );
-          }
-        },
-        pageController: controller,
-        loadingBuilder: (context, event) {
-          return PhotoView.customChild(
-            childSize: MediaQuery.of(context).size,
-            initialScale: PhotoViewComputedScale.contained,
-            minScale: PhotoViewComputedScale.contained * 1.0,
-            maxScale: PhotoViewComputedScale.covered * 10.0,
+          },
+          child: PhotoViewGallery.builder(
             backgroundDecoration: BoxDecoration(
               color: readerBackgroundColor(
                 context,
@@ -389,125 +329,183 @@ class _GalleryModeState extends State<_GalleryMode>
                 reader.type.sourceKey,
               ),
             ),
-            child: Center(
-              child: SizedBox(
-                width: 20.0,
-                height: 20.0,
-                child: CircularProgressIndicator(
-                  backgroundColor: readerBackgroundColor(
+            reverse: reader.mode == ReaderMode.galleryRightToLeft,
+            scrollDirection: reader.mode == ReaderMode.galleryTopToBottom
+                ? Axis.vertical
+                : Axis.horizontal,
+            itemCount: totalPages + 2,
+            builder: (BuildContext context, int index) {
+              if (index == 0 || index == totalPages + 1) {
+                return PhotoViewGalleryPageOptions.customChild(
+                  child: const SizedBox(),
+                );
+              } else if (isChapterCommentsPage(index)) {
+                return PhotoViewGalleryPageOptions.customChild(
+                  child: _buildChapterCommentsPage(),
+                );
+              } else {
+                var (startIndex, endIndex) = getPageImagesRange(index);
+                List<String> pageImages = reader.images!.sublist(
+                  startIndex,
+                  endIndex,
+                );
+
+                cache(index);
+
+                photoViewControllers[index] ??= PhotoViewController();
+
+                if (reader.imagesPerPage == 1 ||
+                    (pageImages.length == 1 && !reader.twoPageSpread)) {
+                  return PhotoViewGalleryPageOptions(
+                    filterQuality: FilterQuality.medium,
+                    controller: photoViewControllers[index],
+                    imageProvider: _createImageProviderFromKey(
+                      pageImages[0],
+                      context,
+                      startIndex + 1,
+                    ),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, error, s, retry) {
+                      return NetworkError(
+                        message: error.toString(),
+                        retry: retry,
+                      );
+                    },
+                  );
+                }
+
+                return PhotoViewGalleryPageOptions.customChild(
+                  childSize: viewportSize,
+                  controller: photoViewControllers[index],
+                  minScale: PhotoViewComputedScale.contained * 1.0,
+                  maxScale: PhotoViewComputedScale.covered * 10.0,
+                  child: buildPageImages(
+                    pageImages,
+                    startIndex,
+                    singleCover:
+                        index == 1 && reader.showSingleImageOnFirstPage(),
+                  ),
+                );
+              }
+            },
+            pageController: controller,
+            loadingBuilder: (context, event) {
+              return PhotoView.customChild(
+                childSize: viewportSize,
+                initialScale: PhotoViewComputedScale.contained,
+                minScale: PhotoViewComputedScale.contained * 1.0,
+                maxScale: PhotoViewComputedScale.covered * 10.0,
+                backgroundDecoration: BoxDecoration(
+                  color: readerBackgroundColor(
                     context,
                     reader.cid,
                     reader.type.sourceKey,
                   ),
-                  value: event == null || event.expectedTotalBytes == null
-                      ? null
-                      : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
                 ),
-              ),
-            ),
-          );
-        },
-        onPageChanged: (i) {
-          if (i == 0) {
-            if (reader.isFirstChapterOfGroup ||
-                !reader.toPrevChapter(toLastPage: true)) {
-              controller.jumpToPage(1);
-            }
-          } else if (i == totalPages + 1) {
-            if (reader.isLastChapterOfGroup || !reader.toNextChapter()) {
-              controller.jumpToPage(totalPages);
-            }
-          } else {
-            reader.setPage(i);
-            context.readerScaffold.update();
-            // Auto close toolbar when entering chapter comments page
-            if (isChapterCommentsPage(i) && context.readerScaffold.isOpen) {
-              context.readerScaffold.openOrClose();
-            }
-          }
-          // Remove other pages' controllers to reset their state.
-          var keys = photoViewControllers.keys.toList();
-          for (var key in keys) {
-            if (key != i) {
-              photoViewControllers.remove(key);
-            }
-          }
-        },
-      ),
+                child: Center(
+                  child: SizedBox(
+                    width: 20.0,
+                    height: 20.0,
+                    child: CircularProgressIndicator(
+                      backgroundColor: readerBackgroundColor(
+                        context,
+                        reader.cid,
+                        reader.type.sourceKey,
+                      ),
+                      value: event == null || event.expectedTotalBytes == null
+                          ? null
+                          : event.cumulativeBytesLoaded /
+                                event.expectedTotalBytes!,
+                    ),
+                  ),
+                ),
+              );
+            },
+            onPageChanged: (i) {
+              if (i == 0) {
+                if (reader.isFirstChapterOfGroup ||
+                    !reader.toPrevChapter(toLastPage: true)) {
+                  controller.jumpToPage(1);
+                }
+              } else if (i == totalPages + 1) {
+                if (reader.isLastChapterOfGroup || !reader.toNextChapter()) {
+                  controller.jumpToPage(totalPages);
+                }
+              } else {
+                reader.setPage(i);
+                context.readerScaffold.update();
+                // Auto close toolbar when entering chapter comments page
+                if (isChapterCommentsPage(i) && context.readerScaffold.isOpen) {
+                  context.readerScaffold.openOrClose();
+                }
+              }
+              // Remove other pages' controllers to reset their state.
+              var keys = photoViewControllers.keys.toList();
+              for (var key in keys) {
+                if (key != i) {
+                  photoViewControllers.remove(key);
+                }
+              }
+            },
+          ),
+        );
+      },
     );
   }
 
-  Widget buildPageImages(List<String> images, int startIndex) {
-    Axis axis = (reader.mode == ReaderMode.galleryTopToBottom)
+  Widget buildPageImages(
+    List<String> images,
+    int startIndex, {
+    bool singleCover = false,
+  }) {
+    final axis = reader.mode == ReaderMode.galleryTopToBottom
         ? Axis.vertical
         : Axis.horizontal;
-
-    bool reverse = reader.mode == ReaderMode.galleryRightToLeft;
-    if (reverse) {
-      images = images.reversed.toList();
+    final reverse = reader.mode == ReaderMode.galleryRightToLeft;
+    // Keep the original image index when reversing visual order. Network
+    // sources can use that index to resolve an image request.
+    var slots = List<int?>.generate(images.length, (i) => i);
+    if (reader.twoPageSpread && slots.length == 1) {
+      slots = singleCover ? [null, 0] : [0, null];
     }
-
-    List<Widget> imageWidgets;
-
-    if (images.length == 2) {
-      imageWidgets = [
+    if (reverse) slots = slots.reversed.toList();
+    final children = <Widget>[];
+    for (var slot = 0; slot < slots.length; slot++) {
+      final imageIndex = slots[slot];
+      children.add(
         Expanded(
-          child: ComicImage(
-            width: double.infinity,
-            height: double.infinity,
-            image: _createImageProviderFromKey(
-              images[0],
-              context,
-              startIndex + 1,
-            ),
-            fit: BoxFit.contain,
-            alignment: axis == Axis.vertical
-                ? Alignment.bottomCenter
-                : Alignment.centerRight,
-            onInit: (state) => imageStates.add(state),
-            onDispose: (state) => imageStates.remove(state),
-          ),
+          child: imageIndex == null
+              ? const SizedBox.expand(key: ValueKey('reader-spread-blank'))
+              : ComicImage(
+                  key: ValueKey(
+                    'reader-spread-image-${startIndex + imageIndex + 1}',
+                  ),
+                  width: double.infinity,
+                  height: double.infinity,
+                  image: _createImageProviderFromKey(
+                    images[imageIndex],
+                    context,
+                    startIndex + imageIndex + 1,
+                  ),
+                  fit: BoxFit.contain,
+                  alignment: slots.length != 2
+                      ? Alignment.center
+                      : axis == Axis.vertical
+                      ? (slot == 0
+                            ? Alignment.bottomCenter
+                            : Alignment.topCenter)
+                      : (slot == 0
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft),
+                  onInit: (state) => imageStates.add(state),
+                  onDispose: (state) => imageStates.remove(state),
+                ),
         ),
-        Expanded(
-          child: ComicImage(
-            width: double.infinity,
-            height: double.infinity,
-            image: _createImageProviderFromKey(
-              images[1],
-              context,
-              startIndex + 2,
-            ),
-            fit: BoxFit.contain,
-            alignment: axis == Axis.vertical
-                ? Alignment.topCenter
-                : Alignment.centerLeft,
-            onInit: (state) => imageStates.add(state),
-            onDispose: (state) => imageStates.remove(state),
-          ),
-        ),
-      ];
-    } else {
-      imageWidgets = images.map((imageKey) {
-        startIndex++;
-        ImageProvider imageProvider = _createImageProviderFromKey(
-          imageKey,
-          context,
-          startIndex,
-        );
-        return Expanded(
-          child: ComicImage(
-            image: imageProvider,
-            fit: BoxFit.contain,
-            onInit: (state) => imageStates.add(state),
-            onDispose: (state) => imageStates.remove(state),
-          ),
-        );
-      }).toList();
+      );
     }
-
     return axis == Axis.vertical
-        ? Column(children: imageWidgets)
-        : Row(children: imageWidgets);
+        ? Column(children: children)
+        : Row(children: children);
   }
 
   @override

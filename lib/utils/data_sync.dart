@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/components/window_frame.dart';
@@ -94,12 +96,12 @@ class DataSync with ChangeNotifier {
 
   bool _haveWaitingTask = false;
 
-  // A local change can arrive while a download is applying remote data. Keep
-  // that request so the downloaded state is uploaded afterwards instead of
-  // silently dropping it.
-  bool _uploadAfterDownload = false;
+  // At most one trailing upload is retained while another transfer runs.
+  // A manual request promotes that batch and waits for its actual result.
+  Future<Res<bool>>? _pendingUpload;
+  bool _pendingUploadForced = false;
 
-  bool get uploadQueued => _uploadAfterDownload;
+  bool get uploadQueued => _pendingUpload != null;
 
   String? _lastError;
 
@@ -125,18 +127,44 @@ class DataSync with ChangeNotifier {
     return List.from(config);
   }
 
-  Future<Res<bool>> uploadData() async {
-    if (isDownloading) {
-      _uploadAfterDownload = true;
+  Future<Res<bool>> uploadData({bool force = false}) {
+    // Gate every automatic caller before exporting, incrementing dataVersion,
+    // notifying listeners, or retaining a pending task.
+    if (!force && !isEnabled) return Future.value(const Res(true));
+    if (_pendingUpload != null) {
+      _pendingUploadForced |= force;
+      return _pendingUpload!;
+    }
+    if (isUploading || isDownloading) {
+      final completion = Completer<Res<bool>>();
+      _pendingUpload = completion.future;
+      _pendingUploadForced = force;
       notifyListeners();
-      return const Res(true);
+      unawaited(_runPendingUpload(completion));
+      return completion.future;
     }
-    if (_haveWaitingTask) return const Res(true);
-    while (isUploading) {
-      _haveWaitingTask = true;
-      await Future.delayed(const Duration(milliseconds: 100));
+    return _uploadDataNow();
+  }
+
+  Future<void> _runPendingUpload(Completer<Res<bool>> completion) async {
+    try {
+      while (isUploading || isDownloading) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      final force = _pendingUploadForced;
+      _pendingUpload = null;
+      _pendingUploadForced = false;
+      // Recheck the switch: it may have been turned off during the transfer.
+      final result = uploadData(force: force);
+      notifyListeners();
+      completion.complete(await result);
+    } catch (error, stack) {
+      // A new batch may already have queued behind the transfer we awaited.
+      completion.completeError(error, stack);
     }
-    _haveWaitingTask = false;
+  }
+
+  Future<Res<bool>> _uploadDataNow() async {
     _isUploading = true;
     _lastError = null;
     notifyListeners();
@@ -278,11 +306,6 @@ class DataSync with ChangeNotifier {
     } finally {
       _isDownloading = false;
       notifyListeners();
-      if (_uploadAfterDownload && isEnabled) {
-        _uploadAfterDownload = false;
-        notifyListeners();
-        Future.microtask(uploadData);
-      }
     }
   }
 }

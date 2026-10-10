@@ -534,6 +534,8 @@ abstract mixin class _ImagePerPageHandler {
 
   late bool _lastOrientation;
 
+  late bool _lastSingleImageOnFirstPage;
+
   /// Track if we were on the chapter comments page before orientation change
   bool _wasOnCommentsPage = false;
 
@@ -560,6 +562,7 @@ abstract mixin class _ImagePerPageHandler {
 
   void initImagesPerPage(int initialPage) {
     _lastImagesPerPage = imagesPerPage;
+    _lastSingleImageOnFirstPage = showSingleImageOnFirstPage();
     _lastOrientation = isPortrait;
     _wasOnCommentsPage = false;
     if (imagesPerPage != 1) {
@@ -577,9 +580,20 @@ abstract mixin class _ImagePerPageHandler {
     'showSingleImageOnFirstPage',
   );
 
+  bool get twoPageSpread =>
+      (mode == ReaderMode.galleryLeftToRight ||
+          mode == ReaderMode.galleryRightToLeft) &&
+      appdata.settings.getReaderSetting(
+            cid,
+            type.sourceKey,
+            'readerTwoPageSpread',
+          ) ==
+          true;
+
   /// The number of images displayed on one screen
   int get imagesPerPage {
     if (mode.isContinuous) return 1;
+    if (twoPageSpread) return 2;
     if (isPortrait) {
       return appdata.settings.getReaderSetting(
             cid,
@@ -598,9 +612,9 @@ abstract mixin class _ImagePerPageHandler {
   }
 
   /// Calculate maxPage with a specific imagesPerPage value
-  int _calcMaxPage(int imagesPerPageValue) {
+  int _calcMaxPage(int imagesPerPageValue, bool singleImageOnFirstPage) {
     if (images == null) return 1;
-    return !showSingleImageOnFirstPage()
+    return !singleImageOnFirstPage
         ? (images!.length / imagesPerPageValue).ceil()
         : 1 + ((images!.length - 1) / imagesPerPageValue).ceil();
   }
@@ -611,10 +625,14 @@ abstract mixin class _ImagePerPageHandler {
     bool currentOrientation = isPortrait;
 
     if (_lastImagesPerPage != currentImagesPerPage ||
-        _lastOrientation != currentOrientation) {
+        _lastOrientation != currentOrientation ||
+        _lastSingleImageOnFirstPage != showSingleImageOnFirstPage()) {
       // Calculate old maxPage using old imagesPerPage to correctly determine
       // if we were on the comments page before the orientation change
-      int oldMaxPage = _calcMaxPage(_lastImagesPerPage);
+      int oldMaxPage = _calcMaxPage(
+        _lastImagesPerPage,
+        _lastSingleImageOnFirstPage,
+      );
       _wasOnCommentsPage = page > oldMaxPage;
 
       _adjustPageForImagesPerPageChange(
@@ -623,6 +641,7 @@ abstract mixin class _ImagePerPageHandler {
       );
       _lastImagesPerPage = currentImagesPerPage;
       _lastOrientation = currentOrientation;
+      _lastSingleImageOnFirstPage = showSingleImageOnFirstPage();
     }
   }
 
@@ -632,7 +651,7 @@ abstract mixin class _ImagePerPageHandler {
     int newImagesPerPage,
   ) {
     int previousImageIndex = 1;
-    if (!showSingleImageOnFirstPage() || oldImagesPerPage == 1) {
+    if (!_lastSingleImageOnFirstPage || oldImagesPerPage == 1) {
       previousImageIndex = (page - 1) * oldImagesPerPage + 1;
     } else {
       if (page == 1) {

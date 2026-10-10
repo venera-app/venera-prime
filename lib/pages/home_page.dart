@@ -487,7 +487,8 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      if (DateTime.now().difference(lastCheck) > const Duration(minutes: 10)) {
+      if (DataSync().isEnabled &&
+          DateTime.now().difference(lastCheck) > const Duration(minutes: 10)) {
         lastCheck = DateTime.now();
         DataSync().downloadData();
       }
@@ -573,7 +574,7 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
                 IconButton(
                   icon: const Icon(Icons.cloud_upload_outlined),
                   onPressed: () async {
-                    DataSync().uploadData();
+                    DataSync().uploadData(force: true);
                   },
                 ),
                 IconButton(

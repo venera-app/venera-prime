@@ -681,6 +681,7 @@ class SliverSearchBar extends StatefulWidget {
     this.onChanged,
     this.action,
     this.focusNode,
+    this.embedded = false,
   });
 
   final SearchBarController controller;
@@ -690,6 +691,8 @@ class SliverSearchBar extends StatefulWidget {
   final Widget? action;
 
   final FocusNode? focusNode;
+
+  final bool embedded;
 
   @override
   State<SliverSearchBar> createState() => _SliverSearchBarState();
@@ -726,7 +729,8 @@ class _SliverSearchBarState extends State<SliverSearchBar>
       delegate: _SliverSearchBarDelegate(
         editingController: _editingController,
         controller: _controller,
-        topPadding: MediaQuery.of(context).padding.top,
+        topPadding: widget.embedded ? 0 : MediaQuery.of(context).padding.top,
+        embedded: widget.embedded,
         onChanged: widget.onChanged,
         action: widget.action,
         focusNode: widget.focusNode,
@@ -748,6 +752,8 @@ class _SliverSearchBarDelegate extends SliverPersistentHeaderDelegate {
 
   final FocusNode? focusNode;
 
+  final bool embedded;
+
   const _SliverSearchBarDelegate({
     required this.editingController,
     required this.controller,
@@ -755,13 +761,17 @@ class _SliverSearchBarDelegate extends SliverPersistentHeaderDelegate {
     this.onChanged,
     this.action,
     this.focusNode,
+    this.embedded = false,
   });
 
   static const _kAppBarHeight = 52.0;
 
   @override
   Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return Container(
       height: _kAppBarHeight + topPadding,
       width: double.infinity,
@@ -777,7 +787,7 @@ class _SliverSearchBarDelegate extends SliverPersistentHeaderDelegate {
       child: Row(
         children: [
           const SizedBox(width: 8),
-          const BackButton(),
+          if (!embedded) const BackButton(),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -828,7 +838,11 @@ class _SliverSearchBarDelegate extends SliverPersistentHeaderDelegate {
     return oldDelegate is! _SliverSearchBarDelegate ||
         editingController != oldDelegate.editingController ||
         controller != oldDelegate.controller ||
-        topPadding != oldDelegate.topPadding;
+        topPadding != oldDelegate.topPadding ||
+        embedded != oldDelegate.embedded ||
+        onChanged != oldDelegate.onChanged ||
+        action != oldDelegate.action ||
+        focusNode != oldDelegate.focusNode;
   }
 }
 
