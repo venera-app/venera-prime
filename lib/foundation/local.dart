@@ -18,8 +18,10 @@ import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/utils/io.dart';
 import 'package:venera/utils/translations.dart';
 import 'package:venera/utils/natural_sort.dart';
+import 'package:venera/utils/chapter_title_sort.dart';
 import 'package:venera/utils/atomic_file.dart';
 
+import 'local_library.dart';
 import 'app.dart';
 import 'history.dart';
 
@@ -127,7 +129,8 @@ class LocalComic with HistoryMixin implements Comic {
   @override
   int? get maxPage => null;
 
-  void read() {
+  void read({String? chapterId}) {
+    if (chapterId != null && !downloadedChapters.contains(chapterId)) return;
     var history = HistoryManager().find(id, comicType);
     int? firstDownloadedChapter;
     int? firstDownloadedChapterGroup;
@@ -145,6 +148,7 @@ class LocalComic with HistoryMixin implements Comic {
               break;
             }
           }
+          if (firstDownloadedChapter != null) break;
         }
       } else {
         var keys = chapters.allChapters.keys;
@@ -154,6 +158,34 @@ class LocalComic with HistoryMixin implements Comic {
             break;
           }
         }
+      }
+    }
+    if (history != null && chapters != null) {
+      final group = history.group ?? 1;
+      final chapterMap = chapters!.isGrouped
+          ? (group > 0 && group <= chapters!.groupCount
+                ? chapters!.getGroupByIndex(group - 1)
+                : <String, String>{})
+          : chapters!.allChapters;
+      final savedChapter = history.ep > 0
+          ? chapterMap.keys.elementAtOrNull(history.ep - 1)
+          : null;
+      if (!downloadedChapters.contains(savedChapter)) history = null;
+    }
+    if (chapterId != null && chapters != null) {
+      history = null;
+      if (chapters!.isGrouped) {
+        for (var i = 0; i < chapters!.groupCount; i++) {
+          final keys = chapters!.getGroupByIndex(i).keys.toList();
+          final index = keys.indexOf(chapterId);
+          if (index >= 0) {
+            firstDownloadedChapter = index + 1;
+            firstDownloadedChapterGroup = i + 1;
+            break;
+          }
+        }
+      } else {
+        firstDownloadedChapter = chapters!.ids.toList().indexOf(chapterId) + 1;
       }
     }
     App.rootContext.to(
@@ -253,14 +285,26 @@ class LocalManager with ChangeNotifier {
     }
     _changingPath = true;
     try {
-      await copyDirectoryIsolate(directory, newDir);
+      final oldDirectory = directory;
+      await copyDirectoryIsolate(oldDirectory, newDir);
+      if (App.isAndroid) await newDir.joinFile('.nomedia').create();
       await atomicWriteString(
         File(FilePath.join(App.dataPath, 'local_path')),
         newPath,
       );
-      await directory.deleteContents(recursive: true);
       path = newPath;
-      _checkNoMedia();
+      notifyListeners();
+      // The new location is committed. A locked old file on Windows must not
+      // leave the running app pointing at a partially deleted old directory.
+      try {
+        await oldDirectory.deleteContents(recursive: true);
+      } catch (error, stack) {
+        Log.warning(
+          'IO',
+          'Storage moved; old directory cleanup failed: $error',
+        );
+        Log.error('IO', error, stack);
+      }
       return null;
     } catch (e, s) {
       Log.error("IO", e, s);
@@ -381,6 +425,7 @@ class LocalManager with ChangeNotifier {
         );
       ''');
     }
+    library = LocalLibrary(_db);
     final columns = _db.select('PRAGMA table_info(comics);');
     if (!columns.any((row) => row['name'] == 'description')) {
       _db.execute(
@@ -439,10 +484,16 @@ class LocalManager with ChangeNotifier {
       downloaded.addAll(old.downloadedChapters);
     }
     _db.execute(
-      '''INSERT OR REPLACE INTO comics
+      '''INSERT INTO comics
          (id, title, subtitle, description, tags, directory, chapters, cover,
           comic_type, downloadedChapters, created_at, managed_by_app)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);''',
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id, comic_type) DO UPDATE SET
+           title = excluded.title, subtitle = excluded.subtitle,
+           description = excluded.description, tags = excluded.tags,
+           directory = excluded.directory, chapters = excluded.chapters,
+           cover = excluded.cover, downloadedChapters = excluded.downloadedChapters,
+           created_at = excluded.created_at, managed_by_app = excluded.managed_by_app;''',
       [
         id ?? comic.id,
         comic.title,
@@ -473,6 +524,8 @@ class LocalManager with ChangeNotifier {
     remove(comic.id, comic.comicType);
     notifyListeners();
   }
+
+  late LocalLibrary library;
 
   List<LocalComic> getComics(LocalSortType sortType) {
     var res = _db.select('''
@@ -584,7 +637,10 @@ class LocalManager with ChangeNotifier {
           chapterDirs.add(child);
         }
       }
-      chapterDirs.sort((a, b) => naturalCompare(a.name, b.name));
+      chapterDirs.sort((a, b) {
+        final result = compareChapterTitles(a.name, b.name);
+        return result == 0 ? naturalCompare(a.name, b.name) : result;
+      });
       final metadata = await _readLocalMetadata(entity);
       if (existing != null) {
         updated++;
@@ -948,25 +1004,25 @@ class LocalManager with ChangeNotifier {
     return Directory(FilePath.join(path, dir));
   }
 
-  void completeTask(DownloadTask task) {
-    unawaited(
-      add(task.toLocalComic()).then(
-        (_) {
-          task.completeBackgroundTask();
-        },
-        onError: (Object error, StackTrace stack) {
-          task.failBackgroundTask(error);
-          Log.error(
-            'Download',
-            'Failed to save downloaded comic: $error',
-            stack,
-          );
-        },
-      ),
-    );
+  Future<void> completeTask(DownloadTask task) async {
+    // Keep failed finalization in the queue so Continue can retry it safely.
+    await add(task.toLocalComic());
+    final position = downloadingTasks.indexOf(task);
     downloadingTasks.remove(task);
+    try {
+      await saveCurrentDownloadingTasks();
+    } catch (_) {
+      if (position >= 0 && !downloadingTasks.contains(task)) {
+        downloadingTasks.insert(
+          position.clamp(0, downloadingTasks.length),
+          task,
+        );
+      }
+      notifyListeners();
+      rethrow;
+    }
+    task.completeBackgroundTask();
     notifyListeners();
-    saveCurrentDownloadingTasks();
     downloadingTasks.firstOrNull?.resume();
   }
 

@@ -73,7 +73,10 @@ void registerComicAuthorTests({bool device = false}) {
           'comicId': 'author-fixture',
         });
     Future<void> show(ComicDetails comic) async {
-      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() async {
+        await tester.pumpWidget(const SizedBox());
+        await appdata.saveData(false);
+      });
       await tester.pumpWidget(
         MaterialApp(
           navigatorKey: App.rootNavigatorKey,
@@ -88,8 +91,11 @@ void registerComicAuthorTests({bool device = false}) {
     }
 
     Future<void> tapAndExpect(String query) async {
-      await tester.tap(find.byType(SelectableText));
-      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.byType(SelectableText));
+        await tester.pumpAndSettle();
+        await appdata.saveData(false);
+      });
       final page = tester.widget<SearchResultPage>(
         find.byType(SearchResultPage),
       );
@@ -152,7 +158,13 @@ void registerComicAuthorTests({bool device = false}) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
-      await tester.pump(const Duration(milliseconds: 100));
+      // Leaving search now flushes the final progress before syncing.
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       await tester.runAsync(() => root.delete(recursive: true));
     }
   });

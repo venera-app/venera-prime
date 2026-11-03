@@ -1,0 +1,36 @@
+name: Dispatch release as bot
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing version tag to build and publish on all six platforms'
+        required: true
+        type: string
+permissions:
+  actions: write
+  contents: read
+jobs:
+  Dispatch:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate tag and dispatch Build ALL with the GitHub Actions token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected vX.Y.Z'; exit 1; }
+          gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --silent
+          jq -n --arg tag "$RELEASE_TAG" '{
+            ref: $tag,
+            inputs: {
+              release_tag: $tag,
+              publish_release: "true",
+              allow_personal_trigger: "false",
+              build_macos: "true", build_ios: "true", build_android: "true",
+              build_windows: "true", build_linux: "true", build_linux_arm64: "true"
+            }
+          }' | gh api --method POST "repos/$GH_REPO/actions/workflows/main.yml/dispatches" --input -

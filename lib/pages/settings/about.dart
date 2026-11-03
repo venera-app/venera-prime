@@ -75,6 +75,11 @@ class _AboutSettingsState extends State<AboutSettings> {
           settingKey: "checkUpdateOnStart",
         ).toSliver(),
         ListTile(
+          title: Text('Project notice'.tl),
+          leading: const Icon(Icons.info_outline),
+          onTap: () => showProjectNotice(context),
+        ).toSliver(),
+        ListTile(
           title: const Text("GitHub"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
@@ -82,11 +87,19 @@ class _AboutSettingsState extends State<AboutSettings> {
           },
         ).toSliver(),
         ListTile(
-          title: Text("Telegram group chat".tl),
+          title: Text("Venera Prime Telegram group".tl),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://t.me/+-Z0d_TB_Alk0YzU1");
+            launchUrlString(primeTelegramUrl);
           },
+        ).toSliver(),
+        ListTile(
+          title: Text('Upstream project Telegram group'.tl),
+          subtitle: Text(
+            'Upstream community, not this fork’s support group'.tl,
+          ),
+          trailing: const Icon(Icons.open_in_new),
+          onTap: () => launchUrlString(upstreamTelegramUrl),
         ).toSliver(),
       ],
     );

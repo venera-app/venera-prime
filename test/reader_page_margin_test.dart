@@ -40,7 +40,11 @@ Future<void> settle(WidgetTester tester) async {
   }
 }
 
-Future<dynamic> openReader(WidgetTester tester, String mode) async {
+Future<dynamic> openReader(
+  WidgetTester tester,
+  String mode, {
+  Map<int, Size> imageSizes = const {},
+}) async {
   tester.view.physicalSize = const Size(1000, 600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -70,6 +74,7 @@ Future<dynamic> openReader(WidgetTester tester, String mode) async {
     'readerPageMarginEnabled': true,
     'readerPageMarginPercent': 19.3,
     'readerTwoPageSpread': false,
+    'readerSpreadOverrides': <String, dynamic>{},
     'showSingleImageOnFirstPage': false,
     'readerScreenPicNumberForLandscape': 1,
     'readerScreenPicNumberForPortrait': 1,
@@ -108,7 +113,24 @@ Future<dynamic> openReader(WidgetTester tester, String mode) async {
     image.dispose();
     picture.dispose();
     for (var i = 1; i <= 30; i++) {
-      File('${dir.path}/$i.png').writeAsBytesSync(bytes);
+      final size = imageSizes[i];
+      if (size == null) {
+        File('${dir.path}/$i.png').writeAsBytesSync(bytes);
+      } else {
+        final recorder = ui.PictureRecorder();
+        Canvas(
+          recorder,
+        ).drawRect(Offset.zero & size, Paint()..color = Colors.orange);
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(
+          size.width.toInt(),
+          size.height.toInt(),
+        );
+        final data = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+        File('${dir.path}/$i.png').writeAsBytesSync(data.buffer.asUint8List());
+        image.dispose();
+        picture.dispose();
+      }
     }
     await local.init();
     await LocalFavoritesManager().init();
@@ -379,7 +401,15 @@ void main() {
       state.shiftImage(-1);
       await settle(tester);
       expect(state.page, 1);
-      expect(state.imageLayout.range(state.page), (0, 1));
+      expect(state.imageLayout.range(state.page), (0, 2));
+      state.resetImageGrouping();
+      state.page = 1;
+      state.update();
+      await settle(tester);
+      state.shiftImage(1);
+      await settle(tester);
+      expect(state.page, 1);
+      expect(state.imageLayout.range(state.page), (0, 2));
       expect(
         tester
             .widget<PhotoViewGallery>(find.byType(PhotoViewGallery))

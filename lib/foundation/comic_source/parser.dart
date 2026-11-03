@@ -210,10 +210,12 @@ class ComicSourceParser {
     _registeredSource = true;
     _retainUnregisteredSource = false;
     if (_checkExists("init")) {
+      final engine = JsEngine();
       Future.delayed(const Duration(milliseconds: 50), () {
+        if (!engine.isRunning || !identical(engine, JsEngine())) return;
         // Keep one source's optional startup hook from becoming an unhandled
         // promise rejection that affects the rest of the source registry.
-        JsEngine().runCode("""
+        engine.runCode("""
           (async function() {
             try {
               await ComicSource.sources.$_registryKey.init();

@@ -1,4 +1,6 @@
+import 'package:venera/utils/search_options.dart';
 import 'dart:convert';
+import 'package:venera/foundation/search_history.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,7 +45,7 @@ class _SearchPageState extends State<SearchPage> {
   var options = <String>[];
 
   void update() {
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void search([String? text]) {
@@ -52,13 +54,8 @@ class _SearchPageState extends State<SearchPage> {
       return;
     }
     if (aggregatedSearch) {
-      // AggregatedSearchPage does not pass through SearchResultPage, so save
-      // the query here to keep aggregated searches in search history.
-      appdata.addSearchHistory(keyword);
       context
-          .to(
-            () => AggregatedSearchPage(keyword: keyword)
-          )
+          .to(() => AggregatedSearchPage(keyword: keyword))
           .then((_) => update());
     } else {
       context
@@ -67,10 +64,54 @@ class _SearchPageState extends State<SearchPage> {
               text: keyword,
               sourceKey: searchTarget,
               options: options,
-            )
+            ),
           )
           .then((_) => update());
     }
+  }
+
+  Future<void> openHistory(SearchHistoryEntry entry) async {
+    if (entry.isLegacy) {
+      if (searchSources.isEmpty) return;
+      search(entry.keyword);
+      return;
+    }
+    if (entry.isAggregate) {
+      await context.to(() => AggregatedSearchPage(keyword: entry.keyword));
+    } else {
+      final source = ComicSource.find(entry.sourceKey!);
+      if (source?.searchPageData == null) {
+        final replacement = await showDialog<String>(
+          context: context,
+          builder: (context) => SimpleDialog(
+            title: Text(
+              'This search source is unavailable. Choose another source.'.tl,
+            ),
+            children: [
+              for (final key in searchSources)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, key),
+                  child: Text(ComicSource.find(key)!.name),
+                ),
+            ],
+          ),
+        );
+        if (!mounted || replacement == null) return;
+        await context.to(
+          () => SearchResultPage(text: entry.keyword, sourceKey: replacement),
+        );
+      } else {
+        await context.to(
+          () => SearchResultPage(
+            text: entry.keyword,
+            sourceKey: entry.sourceKey!,
+            options: entry.options,
+            historyEntry: entry,
+          ),
+        );
+      }
+    }
+    if (mounted) update();
   }
 
   var suggestions = <Pair<String, TranslationType>>[];
@@ -101,10 +142,9 @@ class _SearchPageState extends State<SearchPage> {
 
       for (var comicSource in ComicSource.all()) {
         if (comicSource.idMatcher?.hasMatch(text) ?? false) {
-          suggestions.add(Pair(
-            "**${comicSource.key}**",
-            TranslationType.other,
-          ));
+          suggestions.add(
+            Pair("**${comicSource.key}**", TranslationType.other),
+          );
         }
       }
     }
@@ -163,9 +203,7 @@ class _SearchPageState extends State<SearchPage> {
         searchSources.contains(defaultSearchTarget)) {
       searchTarget = defaultSearchTarget;
     }
-    controller = SearchBarController(
-      onSearch: search,
-    );
+    controller = SearchBarController(onSearch: search);
     appdata.settings.addListener(updateSearchSourcesIfNeeded);
     super.initState();
   }
@@ -232,12 +270,19 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     if (searchSources.isEmpty) {
-      return buildEmpty();
+      return Scaffold(
+        body: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: SizedBox(height: 280, child: buildEmpty()),
+            ),
+            _SearchHistory(openHistory),
+          ],
+        ),
+      );
     }
     return Scaffold(
-      body: SmoothCustomScrollView(
-        slivers: buildSlivers().toList(),
-      ),
+      body: SmoothCustomScrollView(slivers: buildSlivers().toList()),
     );
   }
 
@@ -257,7 +302,7 @@ class _SearchPageState extends State<SearchPage> {
         duration: const Duration(milliseconds: 200),
         child: buildSearchOptions(),
       );
-      yield _SearchHistory(search);
+      yield _SearchHistory(openHistory);
     }
   }
 
@@ -316,7 +361,7 @@ class _SearchPageState extends State<SearchPage> {
 
   void useDefaultOptions() {
     final searchOptions = currentSearchPageData.searchOptions ?? [];
-    options = searchOptions.map((e) => e.defaultValue).toList();
+    options = defaultSearchOptions(searchOptions);
   }
 
   Widget buildSearchOptions() {
@@ -335,15 +380,17 @@ class _SearchPageState extends State<SearchPage> {
     }
     for (int i = 0; i < searchOptions.length; i++) {
       final option = searchOptions[i];
-      children.add(SearchOptionWidget(
-        option: option,
-        value: options[i],
-        onChanged: (value) {
-          options[i] = value;
-          update();
-        },
-        sourceKey: searchTarget,
-      ));
+      children.add(
+        SearchOptionWidget(
+          option: option,
+          value: options[i],
+          onChanged: (value) {
+            options[i] = value;
+            update();
+          },
+          sourceKey: searchTarget,
+        ),
+      );
     }
 
     return SliverToBoxAdapter(
@@ -377,13 +424,20 @@ class _SearchPageState extends State<SearchPage> {
     void onSelected(String text, TranslationType? type) {
       var words = controller.text.split(" ");
       if (words.length >= 2 &&
-          check("${words[words.length - 2]} ${words[words.length - 1]}", text,
-              text.translateTagsToCN)) {
+          check(
+            "${words[words.length - 2]} ${words[words.length - 1]}",
+            text,
+            text.translateTagsToCN,
+          )) {
         controller.text = controller.text.replaceLast(
-            "${words[words.length - 2]} ${words[words.length - 1]}", "");
+          "${words[words.length - 2]} ${words[words.length - 1]}",
+          "",
+        );
       } else {
-        controller.text =
-            controller.text.replaceLast(words[words.length - 1], "");
+        controller.text = controller.text.replaceLast(
+          words[words.length - 1],
+          "",
+        );
       }
       final source = ComicSource.find(searchTarget);
       String insert;
@@ -438,29 +492,21 @@ class _SearchPageState extends State<SearchPage> {
           ),
           trailing: const Icon(Icons.arrow_right),
           onTap: () {
-            context.to(
-              () => ComicPage(
-                sourceKey: key,
-                id: controller.text,
-              ),
-            );
+            context.to(() => ComicPage(sourceKey: key, id: controller.text));
           },
         );
       }
 
       var subTitle = TagsTranslation.translationTagWithNamespace(
-          value.left, value.right.name);
+        value.left,
+        value.right.name,
+      );
       return ListTile(
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Text(value.left),
-            ),
-            if (!showMethod)
-              const SizedBox(
-                width: 12,
-              ),
+            Expanded(child: Text(value.left)),
+            if (!showMethod) const SizedBox(width: 12),
             if (!showMethod && showTranslation)
               Text(
                 subTitle,
@@ -468,14 +514,11 @@ class _SearchPageState extends State<SearchPage> {
                   fontSize: 14,
                   color: Theme.of(context).colorScheme.outline,
                 ),
-              )
+              ),
           ],
         ),
         subtitle: (showMethod && showTranslation) ? Text(subTitle) : null,
-        trailing: Text(
-          value.right.name,
-          style: const TextStyle(fontSize: 13),
-        ),
+        trailing: Text(value.right.name, style: const TextStyle(fontSize: 13)),
         onTap: () => onSelected(value.left, value.right),
       );
     }
@@ -499,12 +542,9 @@ class _SearchPageState extends State<SearchPage> {
           ),
         ),
         SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              return buildItem(suggestions[index]);
-            },
-            childCount: suggestions.length,
-          ),
+          delegate: SliverChildBuilderDelegate((context, index) {
+            return buildItem(suggestions[index]);
+          }, childCount: suggestions.length),
         ),
       ],
     );
@@ -579,7 +619,7 @@ class SearchOptionWidget extends StatelessWidget {
               onChanged(option.options.keys.elementAt(index));
             },
             minWidth: 96,
-          )
+          ),
       ],
     );
   }
@@ -588,7 +628,7 @@ class SearchOptionWidget extends StatelessWidget {
 class _SearchHistory extends StatefulWidget {
   const _SearchHistory(this.search);
 
-  final void Function(String) search;
+  final void Function(SearchHistoryEntry) search;
 
   @override
   State<_SearchHistory> createState() => _SearchHistoryState();
@@ -598,116 +638,150 @@ class _SearchHistoryState extends State<_SearchHistory> {
   @override
   Widget build(BuildContext context) {
     return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          if (index == 0) {
-            return const SizedBox(
-              height: 16,
-            );
-          }
-          if (index == 1) {
-            return ListTile(
-              leading: const Icon(Icons.history),
-              contentPadding: EdgeInsets.zero,
-              title: Text("Search History".tl),
-              trailing: Flyout(
-                flyoutBuilder: (context) {
-                  return FlyoutContent(
-                    title: "Clear Search History".tl,
-                    actions: [
-                      FilledButton(
-                        child: Text("Clear".tl),
-                        onPressed: () {
-                          appdata.clearSearchHistory();
-                          context.pop();
-                          setState(() {});
-                        },
-                      )
-                    ],
+      delegate: SliverChildBuilderDelegate((context, index) {
+        if (index == 0) {
+          return const SizedBox(height: 16);
+        }
+        if (index == 1) {
+          return ListTile(
+            leading: const Icon(Icons.history),
+            contentPadding: EdgeInsets.zero,
+            title: Text("Search History".tl),
+            trailing: Flyout(
+              flyoutBuilder: (context) {
+                return FlyoutContent(
+                  title: "Clear Search History".tl,
+                  actions: [
+                    FilledButton(
+                      child: Text("Clear".tl),
+                      onPressed: () {
+                        appdata.clearSearchHistory();
+                        context.pop();
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                );
+              },
+              child: Builder(
+                builder: (context) {
+                  return Tooltip(
+                    message: "Clear".tl,
+                    child: IconButton(
+                      icon: const Icon(Icons.clear_all),
+                      onPressed: () {
+                        context.findAncestorStateOfType<FlyoutState>()!.show();
+                      },
+                    ),
                   );
                 },
-                child: Builder(
-                  builder: (context) {
-                    return Tooltip(
-                      message: "Clear".tl,
-                      child: IconButton(
-                        icon: const Icon(Icons.clear_all),
-                        onPressed: () {
-                          context
-                              .findAncestorStateOfType<FlyoutState>()!
-                              .show();
-                        },
-                      ),
-                    );
-                  },
-                ),
               ),
-            );
-          }
-          return buildItem(index - 2);
-        },
-        childCount: 2 + appdata.searchHistory.length,
-      ),
+            ),
+          );
+        }
+        return buildItem(index - 2);
+      }, childCount: 2 + appdata.searchHistoryEntries.length),
     ).sliverPaddingHorizontal(16);
   }
 
   Widget buildItem(int index) {
+    final entry = appdata.searchHistoryEntries[index];
+    final sourceName = entry.isAggregate
+        ? 'Aggregated search'.tl
+        : ComicSource.find(entry.sourceKey ?? '')?.name ?? entry.sourceName;
     void showMenu(Offset offset) {
-      showMenuX(
-        context,
-        offset,
-        [
-          MenuEntry(
-            icon: Icons.copy,
-            text: 'Copy'.tl,
-            onClick: () {
-              Clipboard.setData(
-                  ClipboardData(text: appdata.searchHistory[index]));
-            },
-          ),
-          MenuEntry(
-            icon: Icons.delete,
-            text: 'Delete'.tl,
-            onClick: () {
-              appdata.removeSearchHistory(appdata.searchHistory[index]);
-              appdata.saveData();
-              setState(() {});
-            },
-          ),
-        ],
-      );
+      showMenuX(context, offset, [
+        MenuEntry(
+          icon: Icons.copy,
+          text: 'Copy'.tl,
+          onClick: () {
+            Clipboard.setData(ClipboardData(text: entry.keyword));
+          },
+        ),
+        MenuEntry(
+          icon: Icons.delete,
+          text: 'Delete'.tl,
+          onClick: () {
+            appdata.removeSearchEntry(entry);
+            setState(() {});
+          },
+        ),
+      ]);
     }
 
-    return Builder(builder: (context) {
-      return InkWell(
-        onTap: () {
-          widget.search(appdata.searchHistory[index]);
-        },
-        onLongPress: () {
-          var renderBox = context.findRenderObject() as RenderBox;
-          var offset = renderBox.localToGlobal(Offset.zero);
-          showMenu(Offset(
-            offset.dx + renderBox.size.width / 2 - 121,
-            offset.dy + renderBox.size.height - 8,
-          ));
-        },
-        onSecondaryTapUp: (details) {
-          showMenu(details.globalPosition);
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            // color: context.colorScheme.surfaceContainer,
-            border: Border(
-              left: BorderSide(
-                color: context.colorScheme.outlineVariant,
-                width: 2,
+    return Builder(
+      builder: (context) {
+        return InkWell(
+          onTap: () {
+            widget.search(entry);
+          },
+          onLongPress: () {
+            var renderBox = context.findRenderObject() as RenderBox;
+            var offset = renderBox.localToGlobal(Offset.zero);
+            showMenu(
+              Offset(
+                offset.dx + renderBox.size.width / 2 - 121,
+                offset.dy + renderBox.size.height - 8,
+              ),
+            );
+          },
+          onSecondaryTapUp: (details) {
+            showMenu(details.globalPosition);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              // color: context.colorScheme.surfaceContainer,
+              border: Border(
+                left: BorderSide(
+                  color: context.colorScheme.outlineVariant,
+                  width: 2,
+                ),
               ),
             ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(entry.keyword, style: ts.s14),
+                    if (!entry.isLegacy)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          sourceName,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ),
+                    if (entry.labels.isNotEmpty)
+                      Text(
+                        entry.labels.join(' · '),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    if (!entry.isLegacy && !entry.isAggregate)
+                      Text(
+                        'P${entry.page}',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Text(appdata.searchHistory[index], style: ts.s14),
-        ),
-      ).paddingBottom(8).paddingHorizontal(4);
-    });
+        ).paddingBottom(8).paddingHorizontal(4);
+      },
+    );
   }
 }

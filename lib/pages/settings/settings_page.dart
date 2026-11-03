@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:venera/pages/project_notice.dart';
 import 'package:venera/foundation/background_tasks.dart';
 import 'package:venera/components/background_tasks.dart';
 import 'dart:convert';

@@ -28,7 +28,10 @@ abstract class BaseImageProvider<T extends BaseImageProvider<T>>
     // resize if too large
     if (width * height > maxImagePixel) {
       final ratio = sqrt(maxImagePixel / (width * height));
-      return TargetImageSize(width: (width * ratio).round(), height: (height * ratio).round());
+      return TargetImageSize(
+        width: (width * ratio).round(),
+        height: (height * ratio).round(),
+      );
     }
     return TargetImageSize(width: width, height: height);
   }
@@ -36,7 +39,7 @@ abstract class BaseImageProvider<T extends BaseImageProvider<T>>
   @override
   ImageStreamCompleter loadImage(T key, ImageDecoderCallback decode) {
     final chunkEvents = StreamController<ImageChunkEvent>();
-    return MultiFrameImageStreamCompleter(
+    return _CancellableImageStreamCompleter(
       codec: _loadBufferAsync(key, chunkEvents, decode),
       chunkEvents: chunkEvents.stream,
       scale: 1.0,
@@ -114,8 +117,9 @@ abstract class BaseImageProvider<T extends BaseImageProvider<T>>
         if (data.length < 2 * 1024) {
           // data is too short, it's likely that the data is text, not image
           try {
-            var text =
-                const Utf8Codec(allowMalformed: false).decoder.convert(data);
+            var text = const Utf8Codec(
+              allowMalformed: false,
+            ).decoder.convert(data);
             throw Exception("Expected image data, but got text: $text");
           } catch (e) {
             // ignore
@@ -163,4 +167,33 @@ typedef FileDecoderCallback = Future<ui.Codec> Function(Uint8List);
 
 class _ImageLoadingStopException implements Exception {
   const _ImageLoadingStopException();
+}
+
+/// Removing or refreshing an image is an expected cancellation, not a decode
+/// failure to report globally after the last listener has detached.
+class _CancellableImageStreamCompleter extends MultiFrameImageStreamCompleter {
+  _CancellableImageStreamCompleter({
+    required super.codec,
+    required super.scale,
+    super.chunkEvents,
+    super.informationCollector,
+  });
+
+  @override
+  void reportError({
+    DiagnosticsNode? context,
+    required Object exception,
+    StackTrace? stack,
+    InformationCollector? informationCollector,
+    bool silent = false,
+  }) {
+    if (exception is _ImageLoadingStopException) return;
+    super.reportError(
+      context: context,
+      exception: exception,
+      stack: stack,
+      informationCollector: informationCollector,
+      silent: silent,
+    );
+  }
 }

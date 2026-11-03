@@ -13,7 +13,14 @@ import 'package:venera/foundation/appdata.dart';
 class ReaderImageProvider
     extends BaseImageProvider<image_provider.ReaderImageProvider> {
   /// Image provider for normal image.
-  const ReaderImageProvider(this.imageKey, this.sourceKey, this.cid, this.eid, this.page, {this.enableResize = false});
+  const ReaderImageProvider(
+    this.imageKey,
+    this.sourceKey,
+    this.cid,
+    this.eid,
+    this.page, {
+    this.enableResize = false,
+  });
 
   final String imageKey;
 
@@ -40,13 +47,19 @@ class ReaderImageProvider
         throw "Error: File not found.";
       }
     } else {
-      await for (var event
-        in ImageDownloader.loadComicImage(imageKey, sourceKey, cid, eid)) {
+      await for (var event in ImageDownloader.loadComicImage(
+        imageKey,
+        sourceKey,
+        cid,
+        eid,
+      )) {
         checkStop();
-        chunkEvents.add(ImageChunkEvent(
-          cumulativeBytesLoaded: event.currentBytes,
-          expectedTotalBytes: event.totalBytes,
-        ));
+        chunkEvents.add(
+          ImageChunkEvent(
+            cumulativeBytesLoaded: event.currentBytes,
+            expectedTotalBytes: event.totalBytes,
+          ),
+        );
         if (event.imageBytes != null) {
           imageBytes = event.imageBytes;
           break;
@@ -57,7 +70,8 @@ class ReaderImageProvider
       throw "Error: Empty response body.";
     }
     if (appdata.settings['enableCustomImageProcessing']) {
-      final script = appdata.settings['customImageProcessing']?.toString() ?? '';
+      final script =
+          appdata.settings['customImageProcessing']?.toString() ?? '';
       try {
         final func = JsEngine().runCode('''
           (() => {
@@ -93,21 +107,33 @@ class ReaderImageProvider
               }
             } else {
               dynamic futureImage;
-              image.then((value) {
-                futureImage = value;
-                futureImage ??= Uint8List(0);
-              });
-              while (futureImage == null) {
+              Object? processingError;
+              StackTrace? processingStack;
+              var finished = false;
+              image.then<void>(
+                (value) {
+                  futureImage = value;
+                  finished = true;
+                },
+                onError: (Object error, StackTrace stack) {
+                  processingError = error;
+                  processingStack = stack;
+                  finished = true;
+                },
+              );
+              while (!finished) {
                 try {
                   checkStop();
-                }
-                catch(e) {
+                } catch (e) {
                   onCancel([]);
                   rethrow;
                 }
                 await Future.delayed(Duration(milliseconds: 50));
               }
-              if (futureImage is Uint8List) {
+              if (processingError != null) {
+                Error.throwWithStackTrace(processingError!, processingStack!);
+              }
+              if (futureImage is Uint8List && futureImage.isNotEmpty) {
                 imageBytes = futureImage;
               }
             }
@@ -117,6 +143,7 @@ class ReaderImageProvider
         Log.error('Custom Image Processing', 'Failed to process image: $e', s);
       }
     }
+    checkStop();
     return imageBytes!;
   }
 
@@ -126,5 +153,5 @@ class ReaderImageProvider
   }
 
   @override
-  String get key => "$imageKey@$sourceKey@$cid@$eid@$enableResize";
+  String get key => "$imageKey@$sourceKey@$cid@$eid@$page@$enableResize";
 }

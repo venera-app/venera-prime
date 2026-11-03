@@ -11,9 +11,9 @@ void main() {
   const description =
       'Venera Prime is a free and open-source app for comic reading.';
   const telegramLabels = {
-    'zh-CN': 'Telegram群聊',
-    'zh-TW': 'Telegram群組聊天',
-    'en-US': 'Telegram group chat',
+    'zh-CN': 'Venera Prime Telegram 群',
+    'zh-TW': 'Venera Prime Telegram 群',
+    'en-US': 'Venera Prime Telegram group',
   };
 
   setUpAll(AppTranslation.init);
@@ -75,6 +75,15 @@ void main() {
           );
           expect(find.text(telegramLabels[locale]!), findsOneWidget);
           expect(find.text('Telegram'), findsNothing);
+          await tester.scrollUntilVisible(
+            find.text('Upstream project Telegram group'.tl),
+            100,
+            scrollable: find.byType(Scrollable).first,
+          );
+          expect(
+            find.text('Upstream project Telegram group'.tl),
+            findsOneWidget,
+          );
           expect(tester.takeException(), isNull);
         },
       );

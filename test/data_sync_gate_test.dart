@@ -43,6 +43,11 @@ void main() {
     for (var i = 0; i < 30; i++) {
       expect((await sync.uploadData()).success, isTrue);
     }
+    await sync.batchAutomaticUploads(() async {
+      appdata.implicitData['webdavAutoSync'] = true;
+      await sync.uploadData();
+      appdata.implicitData['webdavAutoSync'] = false;
+    });
     expect(sync.isUploading, isFalse);
     expect(sync.uploadQueued, isFalse);
     expect(BackgroundTasks.instance.tasks.length, taskCount);

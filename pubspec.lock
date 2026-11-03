@@ -476,11 +476,9 @@ packages:
   flutter_saf:
     dependency: "direct main"
     description:
-      path: "."
-      ref: fe182cdf40e5fa6230f451bc1d643b860f610d13
-      resolved-ref: fe182cdf40e5fa6230f451bc1d643b860f610d13
-      url: "https://github.com/venera-app/flutter_saf"
-    source: git
+      path: "packages/flutter_saf"
+      relative: true
+    source: path
     version: "0.0.1"
   flutter_staggered_grid_view:
     dependency: "direct main"

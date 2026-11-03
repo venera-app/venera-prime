@@ -6,6 +6,25 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/network/proxy.dart';
 
 void main() {
+  test('Windows protocol assignments work with one or several protocols', () {
+    expect(
+      normalizeSystemProxy('http=127.0.0.1:7897'),
+      'http://127.0.0.1:7897',
+    );
+    expect(
+      normalizeSystemProxy('http=first:80; https=second:443'),
+      'http://second:443',
+    );
+    expect(
+      normalizeSystemProxy(' socks=ignored:1080; HTTP = first:80 '),
+      'http://first',
+    );
+    expect(
+      normalizeSystemProxy('https=broken/path;http=first:8080'),
+      'http://first:8080',
+    );
+    expect(normalizeSystemProxy('socks=ignored:1080'), isNull);
+  });
   test('normalizes manual host and port for both HTTP adapters', () async {
     final previous = appdata.settings['proxy'];
     try {

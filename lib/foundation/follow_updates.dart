@@ -5,6 +5,7 @@ import 'package:venera/foundation/background_tasks.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/channel.dart';
+import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/translations.dart';
 
 class ComicUpdateResult {
@@ -124,6 +125,26 @@ class UpdateProgress {
 }
 
 Future<void> updateFolderBase(
+  String folder,
+  StreamController<UpdateProgress> stream,
+  bool ignoreCheckTime, {
+  required bool Function() shouldCancel,
+  bool markNewUpdates = true,
+  BackgroundTask? backgroundTask,
+  Future<void> Function()? onComplete,
+}) => DataSync().batchAutomaticUploads(
+  () => _updateFolderBase(
+    folder,
+    stream,
+    ignoreCheckTime,
+    shouldCancel: shouldCancel,
+    markNewUpdates: markNewUpdates,
+    backgroundTask: backgroundTask,
+    onComplete: onComplete,
+  ),
+);
+
+Future<void> _updateFolderBase(
   String folder,
   StreamController<UpdateProgress> stream,
   bool ignoreCheckTime, {

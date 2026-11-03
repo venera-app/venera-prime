@@ -22,17 +22,17 @@ std::thread* monitorThread = nullptr;
 
 char* wideCharToMultiByte(wchar_t* pWCStrKey)
 {
-    size_t pSize = WideCharToMultiByte(CP_OEMCP, 0, pWCStrKey, wcslen(pWCStrKey), NULL, 0, NULL, NULL);
+    size_t pSize = WideCharToMultiByte(CP_UTF8, 0, pWCStrKey, wcslen(pWCStrKey), NULL, 0, NULL, NULL);
     char* pCStrKey = new char[pSize + 1];
-    WideCharToMultiByte(CP_OEMCP, 0, pWCStrKey, wcslen(pWCStrKey), pCStrKey, pSize, NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, pWCStrKey, wcslen(pWCStrKey), pCStrKey, pSize, NULL, NULL);
     pCStrKey[pSize] = '\0';
     GlobalFree(pWCStrKey);
     return pCStrKey;
 }
 
 char* getProxy() {
-    _WINHTTP_CURRENT_USER_IE_PROXY_CONFIG net;
-    WinHttpGetIEProxyConfigForCurrentUser(&net);
+    _WINHTTP_CURRENT_USER_IE_PROXY_CONFIG net{};
+    if (!WinHttpGetIEProxyConfigForCurrentUser(&net)) return nullptr;
     if (net.lpszProxy == nullptr) {
         GlobalFree(net.lpszAutoConfigUrl);
         GlobalFree(net.lpszProxyBypass);
@@ -97,7 +97,7 @@ bool FlutterWindow::OnCreate() {
           }
         else
           result->Success(flutter::EncodableValue("No Proxy"));
-        delete(res);
+        delete[] res;
         return;
       }
 #ifdef NDEBUG

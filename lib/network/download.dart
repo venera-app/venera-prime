@@ -21,6 +21,32 @@ import 'file_downloader.dart';
 import 'download_page.dart';
 
 abstract class DownloadTask with ChangeNotifier {
+  Future<void>? _activeRun;
+  bool _resumeRequested = false;
+
+  /// Includes final library/queue persistence, even after the row disappears.
+  Future<void> get settled => _activeRun ?? Future<void>.value();
+
+  void _runSerialized(
+    Future<void> Function() action,
+    void Function(String) onError,
+  ) {
+    if (_activeRun != null) {
+      if (isPaused) _resumeRequested = true;
+      return;
+    }
+    _resumeRequested = false;
+    _activeRun = Future<void>.sync(action)
+        .catchError((Object error, StackTrace stack) {
+          onError('Error: $error');
+          Log.error('Download', error, stack);
+        })
+        .whenComplete(() {
+          _activeRun = null;
+          if (_resumeRequested) resume();
+        });
+  }
+
   BackgroundTask? _backgroundTask;
 
   String get backgroundTaskKey => 'download:${comicType.value}:$id';
@@ -70,6 +96,7 @@ abstract class DownloadTask with ChangeNotifier {
   }
 
   void _requestBackgroundCancellation() {
+    _resumeRequested = false;
     final task = _backgroundTask;
     if (task == null || !task.isRunning) return;
     task.cancelRequested = true;
@@ -266,6 +293,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   @override
   void pause() {
+    _resumeRequested = false;
     if (isPaused) {
       return;
     }
@@ -632,7 +660,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   }
 
   void _scheduleTasks([Set<int>? downloadedPages]) {
-    if (!_isRunning) {
+    if (!_isRunning || _chapter >= _images!.length) {
       return;
     }
     var images = _images![_images!.keys.elementAt(_chapter)]!;
@@ -665,23 +693,28 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         i,
       );
       tasks[i] = task;
-      task.wait().then((task) {
-        if (_isRunning && task.isComplete) {
-          _scheduleTasks(downloadedPages);
-        }
-      });
+      final scheduledChapter = _chapter;
+      task
+          .wait()
+          .then((task) {
+            if (_isRunning &&
+                task.isComplete &&
+                scheduledChapter == _chapter &&
+                identical(tasks[i], task)) {
+              _scheduleTasks(downloadedPages);
+            }
+          })
+          .catchError((Object error, StackTrace stack) {
+            _setError('Error: $error');
+            Log.error('Download', error, stack);
+          });
       downloading++;
     }
   }
 
   @override
   void resume() {
-    unawaited(
-      _resume().catchError((Object error, StackTrace stack) {
-        _setError('Error: $error');
-        Log.error('Download', error, stack);
-      }),
-    );
+    _runSerialized(_resume, _setError);
   }
 
   Future<void> _resume() async {
@@ -910,7 +943,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
     }
 
     await _deleteDownloadInfo();
-    LocalManager().completeTask(this);
+    await LocalManager().completeTask(this);
+    _isRunning = false;
     stopRecorder();
   }
 
@@ -1327,6 +1361,7 @@ class ArchiveDownloadTask extends DownloadTask {
 
   @override
   void pause() {
+    _resumeRequested = false;
     _isRunning = false;
     _message = "Paused";
     _downloader?.stop();
@@ -1344,12 +1379,7 @@ class ArchiveDownloadTask extends DownloadTask {
 
   @override
   void resume() {
-    unawaited(
-      _resume().catchError((Object error, StackTrace stack) {
-        _setError('Error: $error');
-        Log.error('Download', error, stack);
-      }),
-    );
+    _runSerialized(_resume, _setError);
   }
 
   Future<void> _resume() async {
@@ -1437,7 +1467,8 @@ class ArchiveDownloadTask extends DownloadTask {
     if (!_isRunning) return;
     await archiveFile.deleteIgnoreError();
 
-    LocalManager().completeTask(this);
+    await LocalManager().completeTask(this);
+    _isRunning = false;
   }
 
   static Future<void> _extractArchive(

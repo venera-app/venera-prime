@@ -26,6 +26,9 @@ void registerDataSyncTransportTests({bool device = false}) {
     'WebDAV upload failure retains backups; success prunes only old files',
     (tester) async {
       await ensureTestTranslations();
+      final previousLanguage = appdata.settings['language'];
+      appdata.settings['language'] = 'en-US';
+      addTearDown(() => appdata.settings['language'] = previousLanguage);
       final root = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('prime-webdav-'),
       ))!;
@@ -269,6 +272,36 @@ void registerDataSyncTransportTests({bool device = false}) {
         expect(appdata.settings['dataVersion'], versionBeforeNoOp);
         expect(sync.isUploading, isFalse);
         expect(sync.uploadQueued, isFalse);
+
+        // Changing source tokens throughout overlapping checks uploads once,
+        // after the outer batch finishes, including an exceptional exit.
+        operations.clear();
+        await tester.runAsync(() async {
+          await sync.batchAutomaticUploads(() async {
+            for (var i = 0; i < 8; i++) {
+              source.data['batch-token'] = i;
+              await source.saveData();
+            }
+            await expectLater(
+              sync.batchAutomaticUploads(() async {
+                await sync.uploadData();
+                throw StateError('cancelled check fixture');
+              }),
+              throwsStateError,
+            );
+            expect(operations, isEmpty);
+            expect(sync.isUploading, isFalse);
+          });
+          final deadline = DateTime.now().add(const Duration(seconds: 15));
+          while (sync.isUploading || sync.uploadQueued) {
+            if (DateTime.now().isAfter(deadline)) {
+              fail('batch upload timed out');
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+        });
+        expect(operations.where((op) => op.startsWith('PUT ')), hasLength(1));
+        expect(sync.lastError, isNull);
 
         // Hold the network transfer so overlapping saves are deterministic.
         Future<void> uploadBurst({

@@ -28,6 +28,11 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
 
   late LocalSortType sortType;
 
+  int? folder;
+  bool uncategorized = false;
+  bool customOrder = false;
+  final _sizes = <String, Future<int>>{};
+
   String keyword = "";
 
   bool searchMode = false;
@@ -37,22 +42,246 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   Map<LocalComic, bool> selectedComics = {};
 
   void update() {
-    if (keyword.isEmpty) {
-      setState(() {
-        comics = LocalManager().getComics(sortType);
-      });
-    } else {
-      setState(() {
-        comics = LocalManager().search(keyword);
+    if (!mounted) return;
+    final placements = LocalManager().library.placements;
+    final items = keyword.isEmpty
+        ? LocalManager().getComics(sortType)
+        : LocalManager().search(keyword);
+    items.removeWhere((c) {
+      final assigned = placements[(c.id, c.comicType.value)]?.folder;
+      return uncategorized
+          ? assigned != null
+          : folder != null && assigned != folder;
+    });
+    if (customOrder) {
+      final original = {for (var i = 0; i < items.length; i++) items[i]: i};
+      items.sort((a, b) {
+        final x = placements[(a.id, a.comicType.value)]?.position ?? 0x7fffffff;
+        final y = placements[(b.id, b.comicType.value)]?.position ?? 0x7fffffff;
+        return x == y ? original[a]!.compareTo(original[b]!) : x.compareTo(y);
       });
     }
+    setState(() {
+      comics = items;
+      selectedComics.removeWhere(
+        (c, _) => !items.any((v) => v.id == c.id && v.comicType == c.comicType),
+      );
+      _sizes.clear();
+    });
+  }
+
+  Future<int> _size(LocalComic comic) async {
+    var bytes = 0;
+    await for (final entity in Directory(
+      comic.baseDir,
+    ).list(recursive: true, followLinks: false)) {
+      if (entity is File) bytes += await entity.length();
+    }
+    return bytes;
+  }
+
+  Future<void> _openComic(LocalComic comic) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(comic.title),
+        children: [
+          SimpleDialogOption(
+            child: Text('Read'.tl),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              comic.read();
+            },
+          ),
+          SimpleDialogOption(
+            child: Text('View Detail'.tl),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              if (comic.comicType == ComicType.local) {
+                showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text(comic.title),
+                    content: SingleChildScrollView(
+                      child: Text(
+                        [
+                          comic.subtitle,
+                          comic.description,
+                          comic.tags.join(', '),
+                          comic.baseDir,
+                        ].where((s) => s.isNotEmpty).join('\n\n'),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('Close'.tl),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                context.to(
+                  () => ComicPage(id: comic.id, sourceKey: comic.sourceKey),
+                );
+              }
+            },
+          ),
+          for (final entry
+              in comic.chapters?.allChapters.entries ??
+                  <MapEntry<String, String>>[])
+            if (comic.downloadedChapters.contains(entry.key))
+              SimpleDialogOption(
+                child: Text(entry.value),
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  comic.read(chapterId: entry.key);
+                },
+              ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _moveComics(List<LocalComic> items) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text('Move to folder'.tl),
+        children: [
+          for (final target in [
+            (id: null, name: 'Uncategorized'.tl),
+            ...LocalManager().library.folders,
+          ])
+            SimpleDialogOption(
+              child: Text(target.name),
+              onPressed: () {
+                LocalManager().library.move(
+                  items.map((c) => (c.id, c.comicType.value)).toList(),
+                  target.id,
+                );
+                Navigator.pop(dialogContext);
+                update();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _folderName({int? id, String name = ''}) async {
+    final controller = TextEditingController(text: name);
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => AlertDialog(
+          title: Text((id == null ? 'New folder' : 'Rename folder').tl),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(errorText: error),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel'.tl),
+            ),
+            FilledButton(
+              onPressed: () {
+                try {
+                  if (id == null) {
+                    LocalManager().library.createFolder(controller.text);
+                  } else {
+                    LocalManager().library.renameFolder(id, controller.text);
+                  }
+                  Navigator.pop(dialogContext);
+                  update();
+                } catch (_) {
+                  refresh(
+                    () => error = 'Use a unique, non-empty folder name'.tl,
+                  );
+                }
+              },
+              child: Text('Save'.tl),
+            ),
+          ],
+        ),
+      ),
+    );
+    // Dialog transition may still hold its text field until the next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+  }
+
+  Future<void> _reorder({bool folders = false}) async {
+    final entries = folders
+        ? LocalManager().library.folders
+              .map((f) => (key: f.id as Object, label: f.name))
+              .toList()
+        : comics
+              .map(
+                (c) =>
+                    (key: (c.id, c.comicType.value) as Object, label: c.title),
+              )
+              .toList();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => AlertDialog(
+          title: Text((folders ? 'Sort folders' : 'Custom order').tl),
+          content: SizedBox(
+            width: 480,
+            height: 400,
+            child: ReorderableListView.builder(
+              itemCount: entries.length,
+              onReorder: (oldIndex, newIndex) => refresh(() {
+                if (newIndex > oldIndex) newIndex--;
+                entries.insert(newIndex, entries.removeAt(oldIndex));
+              }),
+              itemBuilder: (context, index) => ListTile(
+                key: ValueKey(entries[index].key),
+                title: Text(entries[index].label),
+                contentPadding: const EdgeInsets.only(left: 12, right: 48),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel'.tl),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (folders) {
+                  LocalManager().library.reorderFolders(
+                    entries.map((e) => e.key as int).toList(),
+                  );
+                } else {
+                  LocalManager().library.reorderComics(
+                    entries.map((e) => e.key as (String, int)).toList(),
+                  );
+                  customOrder = true;
+                  appdata.implicitData['local_custom_order'] = true;
+                  appdata.writeImplicitData();
+                }
+                Navigator.pop(dialogContext);
+                update();
+              },
+              child: Text('Save'.tl),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   void initState() {
     var sort = appdata.implicitData["local_sort"] ?? "name";
     sortType = LocalSortType.fromString(sort);
+    customOrder = appdata.implicitData['local_custom_order'] == true;
     comics = LocalManager().getComics(sortType);
+    update();
     LocalManager().addListener(update);
     super.initState();
   }
@@ -67,95 +296,108 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
     showDialog(
       context: context,
       builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
-          return ContentDialog(
-            title: "Sort".tl,
-            content: RadioGroup<LocalSortType>(
-              groupValue: sortType,
-              onChanged: (v) {
-                setState(() {
-                  sortType = v ?? sortType;
-                });
-              },
-              child: Column(
-                children: [
-                  RadioListTile<LocalSortType>(
-                    title: Text("Name".tl),
-                    value: LocalSortType.name,
-                  ),
-                  RadioListTile<LocalSortType>(
-                    title: Text("Date".tl),
-                    value: LocalSortType.timeAsc,
-                  ),
-                  RadioListTile<LocalSortType>(
-                    title: Text("Date Desc".tl),
-                    value: LocalSortType.timeDesc,
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  appdata.implicitData["local_sort"] = sortType.value;
-                  appdata.writeImplicitData();
-                  Navigator.pop(context);
-                  update();
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return ContentDialog(
+              title: "Sort".tl,
+              content: RadioGroup<LocalSortType>(
+                groupValue: sortType,
+                onChanged: (v) {
+                  setState(() {
+                    sortType = v ?? sortType;
+                  });
                 },
-                child: Text("Confirm".tl),
+                child: Column(
+                  children: [
+                    RadioListTile<LocalSortType>(
+                      title: Text("Name".tl),
+                      value: LocalSortType.name,
+                    ),
+                    RadioListTile<LocalSortType>(
+                      title: Text("Date".tl),
+                      value: LocalSortType.timeAsc,
+                    ),
+                    RadioListTile<LocalSortType>(
+                      title: Text("Date Desc".tl),
+                      value: LocalSortType.timeDesc,
+                    ),
+                  ],
+                ),
               ),
-            ],
-          );
-        });
+              actions: [
+                FilledButton(
+                  onPressed: () {
+                    customOrder = false;
+                    appdata.implicitData['local_custom_order'] = false;
+                    appdata.implicitData["local_sort"] = sortType.value;
+                    appdata.writeImplicitData();
+                    Navigator.pop(context);
+                    update();
+                  },
+                  child: Text("Confirm".tl),
+                ),
+              ],
+            );
+          },
+        );
       },
     );
   }
 
   Widget buildMultiSelectMenu() {
-    return MenuButton(entries: [
-      MenuEntry(
-        icon: Icons.delete_outline,
-        text: "Delete".tl,
-        onClick: () {
-          deleteComics(selectedComics.keys.toList()).then((value) {
-            if (value) {
-              setState(() {
-                multiSelectMode = false;
-                selectedComics.clear();
-              });
-            }
-          });
-        },
-      ),
-      MenuEntry(
-        icon: Icons.favorite_border,
-        text: "Add to favorites".tl,
-        onClick: () {
-          addFavorite(selectedComics.keys.toList());
-        },
-      ),
-      if (selectedComics.length == 1)
+    return MenuButton(
+      entries: [
         MenuEntry(
-          icon: Icons.folder_open,
-          text: "Open Folder".tl,
+          icon: Icons.drive_file_move_outline,
+          text: 'Move to folder'.tl,
+          onClick: () => _moveComics(selectedComics.keys.toList()),
+        ),
+        MenuEntry(
+          icon: Icons.delete_outline,
+          text: "Delete".tl,
           onClick: () {
-            openComicFolder(selectedComics.keys.first);
+            deleteComics(selectedComics.keys.toList()).then((value) {
+              if (value) {
+                setState(() {
+                  multiSelectMode = false;
+                  selectedComics.clear();
+                });
+              }
+            });
           },
         ),
-      if (selectedComics.length == 1)
         MenuEntry(
-          icon: Icons.chrome_reader_mode_outlined,
-          text: "View Detail".tl,
+          icon: Icons.favorite_border,
+          text: "Add to favorites".tl,
           onClick: () {
-            context.to(() => ComicPage(
+            addFavorite(selectedComics.keys.toList());
+          },
+        ),
+        if (selectedComics.length == 1)
+          MenuEntry(
+            icon: Icons.folder_open,
+            text: "Open Folder".tl,
+            onClick: () {
+              openComicFolder(selectedComics.keys.first);
+            },
+          ),
+        if (selectedComics.length == 1)
+          MenuEntry(
+            icon: Icons.chrome_reader_mode_outlined,
+            text: "View Detail".tl,
+            onClick: () {
+              context.to(
+                () => ComicPage(
                   id: selectedComics.keys.first.id,
                   sourceKey: selectedComics.keys.first.sourceKey,
-                ));
-          },
-        ),
-      if (selectedComics.isNotEmpty)
-        ...exportActions(selectedComics.keys.toList()),
-    ]);
+                ),
+              );
+            },
+          ),
+        if (selectedComics.isNotEmpty)
+          ...exportActions(selectedComics.keys.toList()),
+      ],
+    );
   }
 
   void selectAll() {
@@ -183,21 +425,64 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   Widget build(BuildContext context) {
     List<Widget> selectActions = [
       IconButton(
-          icon: const Icon(Icons.select_all),
-          tooltip: "Select All".tl,
-          onPressed: selectAll),
+        icon: const Icon(Icons.select_all),
+        tooltip: "Select All".tl,
+        onPressed: selectAll,
+      ),
       IconButton(
-          icon: const Icon(Icons.deselect),
-          tooltip: "Deselect".tl,
-          onPressed: deSelect),
+        icon: const Icon(Icons.deselect),
+        tooltip: "Deselect".tl,
+        onPressed: deSelect,
+      ),
       IconButton(
-          icon: const Icon(Icons.flip),
-          tooltip: "Invert Selection".tl,
-          onPressed: invertSelection),
+        icon: const Icon(Icons.flip),
+        tooltip: "Invert Selection".tl,
+        onPressed: invertSelection,
+      ),
       buildMultiSelectMenu(),
     ];
 
     List<Widget> normalActions = [
+      MenuButton(
+        entries: [
+          MenuEntry(
+            icon: Icons.create_new_folder_outlined,
+            text: 'New folder'.tl,
+            onClick: () => _folderName(),
+          ),
+          MenuEntry(
+            icon: Icons.swap_vert,
+            text: 'Custom order'.tl,
+            onClick: () => _reorder(),
+          ),
+          MenuEntry(
+            icon: Icons.folder_copy_outlined,
+            text: 'Sort folders'.tl,
+            onClick: () => _reorder(folders: true),
+          ),
+          if (folder != null) ...[
+            MenuEntry(
+              icon: Icons.edit_outlined,
+              text: 'Rename folder'.tl,
+              onClick: () => _folderName(
+                id: folder,
+                name: LocalManager().library.folders
+                    .firstWhere((f) => f.id == folder)
+                    .name,
+              ),
+            ),
+            MenuEntry(
+              icon: Icons.folder_delete_outlined,
+              text: 'Remove category (keep files)'.tl,
+              onClick: () {
+                LocalManager().library.deleteFolder(folder!);
+                folder = null;
+                update();
+              },
+            ),
+          ],
+        ],
+      ),
       Tooltip(
         message: "Search".tl,
         child: IconButton(
@@ -211,10 +496,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
       ),
       Tooltip(
         message: "Sort".tl,
-        child: IconButton(
-          icon: const Icon(Icons.sort),
-          onPressed: sort,
-        ),
+        child: IconButton(icon: const Icon(Icons.sort), onPressed: sort),
       ),
       Tooltip(
         message: "Downloading".tl,
@@ -294,7 +576,77 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                     ),
               actions: multiSelectMode ? selectActions : null,
             ),
+          SliverToBoxAdapter(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Row(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: Text('All'.tl),
+                      selected: folder == null && !uncategorized,
+                      onSelected: (_) {
+                        folder = null;
+                        uncategorized = false;
+                        update();
+                      },
+                    ),
+                    ChoiceChip(
+                      label: Text('Uncategorized'.tl),
+                      selected: uncategorized,
+                      onSelected: (_) {
+                        folder = null;
+                        uncategorized = true;
+                        update();
+                      },
+                    ),
+                    for (final f in LocalManager().library.folders)
+                      ChoiceChip(
+                        label: Text(f.name),
+                        selected: folder == f.id,
+                        onSelected: (_) {
+                          folder = f.id;
+                          uncategorized = false;
+                          update();
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           SliverGridComics(
+            itemWrapper: (c, child) {
+              final comic = c as LocalComic;
+              final source =
+                  comic.comicType.comicSource?.name ??
+                  (comic.comicType == ComicType.local
+                      ? 'Local'.tl
+                      : comic.sourceKey);
+              return Column(
+                children: [
+                  Expanded(child: child),
+                  FutureBuilder<int>(
+                    future: _sizes.putIfAbsent(
+                      comic.baseDir,
+                      () => _size(comic),
+                    ),
+                    builder: (context, snapshot) => Text(
+                      '$source · ${snapshot.hasData
+                          ? bytesToReadableString(snapshot.data!)
+                          : snapshot.hasError
+                          ? "Unavailable".tl
+                          : "…"}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
+                ],
+              );
+            },
             comics: comics,
             selections: selectedComics,
             onLongPressed: (c, heroID) {
@@ -317,13 +669,20 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                 });
               } else {
                 // prevent dirty data
-                var comic =
-                    LocalManager().find(c.id, ComicType.fromKey(c.sourceKey))!;
-                comic.read();
+                var comic = LocalManager().find(
+                  c.id,
+                  (c as LocalComic).comicType,
+                );
+                if (comic != null) _openComic(comic);
               }
             },
             menuBuilder: (c) {
               return [
+                MenuEntry(
+                  icon: Icons.drive_file_move_outline,
+                  text: 'Move to folder'.tl,
+                  onClick: () => _moveComics([c as LocalComic]),
+                ),
                 MenuEntry(
                   icon: Icons.folder_open,
                   text: "Open Folder".tl,
@@ -381,55 +740,57 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
       builder: (context) {
         bool removeComicFile = true;
         bool removeFavoriteAndHistory = true;
-        return StatefulBuilder(builder: (context, state) {
-          return ContentDialog(
-            title: "Delete".tl,
-            content: Column(
-              children: [
-                CheckboxListTile(
-                  title: Text("Remove local favorite and history".tl),
-                  value: removeFavoriteAndHistory,
-                  onChanged: (v) {
-                    state(() {
-                      removeFavoriteAndHistory = !removeFavoriteAndHistory;
-                    });
-                  },
-                ),
-                CheckboxListTile(
-                  title: Text("Also remove files on disk".tl),
-                  value: removeComicFile,
-                  onChanged: (v) {
-                    state(() {
-                      removeComicFile = !removeComicFile;
-                    });
-                  },
-                )
-              ],
-            ),
-            actions: [
-              if (comics.length == 1 && comics.first.hasChapters)
-                TextButton(
-                  child: Text("Delete Chapters".tl),
+        return StatefulBuilder(
+          builder: (context, state) {
+            return ContentDialog(
+              title: "Delete".tl,
+              content: Column(
+                children: [
+                  CheckboxListTile(
+                    title: Text("Remove local favorite and history".tl),
+                    value: removeFavoriteAndHistory,
+                    onChanged: (v) {
+                      state(() {
+                        removeFavoriteAndHistory = !removeFavoriteAndHistory;
+                      });
+                    },
+                  ),
+                  CheckboxListTile(
+                    title: Text("Also remove files on disk".tl),
+                    value: removeComicFile,
+                    onChanged: (v) {
+                      state(() {
+                        removeComicFile = !removeComicFile;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                if (comics.length == 1 && comics.first.hasChapters)
+                  TextButton(
+                    child: Text("Delete Chapters".tl),
+                    onPressed: () {
+                      context.pop();
+                      showDeleteChaptersPopWindow(context, comics.first);
+                    },
+                  ),
+                FilledButton(
                   onPressed: () {
                     context.pop();
-                    showDeleteChaptersPopWindow(context, comics.first);
+                    LocalManager().batchDeleteComics(
+                      comics,
+                      removeComicFile,
+                      removeFavoriteAndHistory,
+                    );
+                    isDeleted = true;
                   },
+                  child: Text("Confirm".tl),
                 ),
-              FilledButton(
-                onPressed: () {
-                  context.pop();
-                  LocalManager().batchDeleteComics(
-                    comics,
-                    removeComicFile,
-                    removeFavoriteAndHistory,
-                  );
-                  isDeleted = true;
-                },
-                child: Text("Confirm".tl),
-              ),
-            ],
-          );
-        });
+              ],
+            );
+          },
+        );
       },
     );
     return isDeleted;
@@ -457,14 +818,17 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
         onClick: () async {
           exportComics(comics, createEpubWithLocalComic, ".epub");
         },
-      )
+      ),
     ];
   }
 
   /// Export using a private staging directory so minimized exports cannot
   /// delete each other's work when a second export is started.
   void exportComics(
-      List<LocalComic> comics, ExportComicFunc export, String ext) async {
+    List<LocalComic> comics,
+    ExportComicFunc export,
+    String ext,
+  ) async {
     comics = List.of(comics);
     if (comics.isEmpty) return;
     var current = 0;
@@ -483,8 +847,10 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
       var fileName = '';
       for (final comic in comics) {
         if (cancelled) return;
-        fileName = FilePath.join(output.path,
-          sanitizeFileName(comic.title, maxLength: 100) + ext);
+        fileName = FilePath.join(
+          output.path,
+          sanitizeFileName(comic.title, maxLength: 100) + ext,
+        );
         await export(comic, fileName);
         current++;
         controller.setMessage("${"Exporting".tl} $current/${comics.length}");
@@ -510,11 +876,10 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
       controller.close();
     }
   }
-
 }
 
-typedef ExportComicFunc = Future<File> Function(
-    LocalComic comic, String outFilePath);
+typedef ExportComicFunc =
+    Future<File> Function(LocalComic comic, String outFilePath);
 
 /// Opens the folder containing the comic in the system file explorer
 Future<void> openComicFolder(LocalComic comic) async {
@@ -566,51 +931,53 @@ void showDeleteChaptersPopWindow(BuildContext context, LocalComic comic) {
     context,
     PopUpWidgetScaffold(
       title: "Delete Chapters".tl,
-      body: StatefulBuilder(builder: (context, setState) {
-        return Column(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                itemCount: comic.downloadedChapters.length,
-                itemBuilder: (context, index) {
-                  var id = comic.downloadedChapters[index];
-                  var chapter = comic.chapters![id] ?? "Unknown Chapter";
-                  return CheckboxListTile(
-                    title: Text(chapter),
-                    value: chapters.contains(id),
-                    onChanged: (v) {
-                      setState(() {
-                        if (v == true) {
-                          chapters.add(id);
-                        } else {
-                          chapters.remove(id);
-                        }
-                      });
-                    },
-                  );
-                },
+      body: StatefulBuilder(
+        builder: (context, setState) {
+          return Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  itemCount: comic.downloadedChapters.length,
+                  itemBuilder: (context, index) {
+                    var id = comic.downloadedChapters[index];
+                    var chapter = comic.chapters![id] ?? "Unknown Chapter";
+                    return CheckboxListTile(
+                      title: Text(chapter),
+                      value: chapters.contains(id),
+                      onChanged: (v) {
+                        setState(() {
+                          if (v == true) {
+                            chapters.add(id);
+                          } else {
+                            chapters.remove(id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  FilledButton(
-                    onPressed: () {
-                      Future.delayed(const Duration(milliseconds: 200), () {
-                        LocalManager().deleteComicChapters(comic, chapters);
-                      });
-                      App.rootContext.pop();
-                    },
-                    child: Text("Submit".tl),
-                  )
-                ],
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    FilledButton(
+                      onPressed: () {
+                        Future.delayed(const Duration(milliseconds: 200), () {
+                          LocalManager().deleteComicChapters(comic, chapters);
+                        });
+                        App.rootContext.pop();
+                      },
+                      child: Text("Submit".tl),
+                    ),
+                  ],
+                ),
               ),
-            )
-          ],
-        );
-      }),
+            ],
+          );
+        },
+      ),
     ),
   );
 }

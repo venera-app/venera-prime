@@ -120,6 +120,7 @@ void main() {
             await IOOverrides.runWithIOOverrides(() async {
               task!.resume();
               await completed.future.timeout(const Duration(seconds: 5));
+              await task.settled;
             }, _ListingOverrides(pages.path));
             expect(task.isError, isFalse);
             expect(task.progress, 1);
@@ -141,6 +142,7 @@ void main() {
           manager.downloadingTasks.clear();
         } finally {
           task?.pause();
+          await task?.settled;
           task?.dispose();
           await manager.saveCurrentDownloadingTasks();
           manager.close();
@@ -262,6 +264,7 @@ void main() {
       expect(manager.find('comic', task.comicType)!.downloadedChapters, ['1']);
       manager.removeListener(onComplete);
       await manager.saveCurrentDownloadingTasks();
+      await task.settled;
       task.dispose();
       manager.close();
       await directory.delete(recursive: true);

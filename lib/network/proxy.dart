@@ -47,19 +47,26 @@ Future<String?> _getProxy() async {
   } else {
     res = "No Proxy";
   }
-  if (res == "No Proxy") return null;
+  return normalizeSystemProxy(res);
+}
 
-  if (res.contains(";")) {
-    var proxies = res.split(";");
-    for (String proxy in proxies) {
-      proxy = proxy.removeAllBlank;
-      if (proxy.startsWith('https=')) {
-        return _normalizeProxy(proxy.substring(6));
+/// WinHTTP may return either HOST:PORT or a per-protocol assignment list.
+String? normalizeSystemProxy(String value) {
+  if (value == 'No Proxy' || value.trim().isEmpty) return null;
+  final entries = value.split(';').map((e) => e.trim()).toList();
+  for (final protocol in ['https', 'http']) {
+    for (final entry in entries) {
+      final separator = entry.indexOf('=');
+      if (separator > 0 &&
+          entry.substring(0, separator).trim().toLowerCase() == protocol) {
+        final proxy = _normalizeProxy(entry.substring(separator + 1).trim());
+        if (proxy != null) return proxy;
       }
     }
   }
-
-  return _normalizeProxy(res);
+  return entries.length == 1 && !value.contains('=')
+      ? _normalizeProxy(value.trim())
+      : null;
 }
 
 String? _normalizeProxy(String value) {

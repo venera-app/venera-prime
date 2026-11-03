@@ -1,6 +1,6 @@
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'natural_sort.dart';
+import 'chapter_title_sort.dart';
 
 enum ChapterOrder {
   source('Source order'),
@@ -36,8 +36,11 @@ enum ChapterOrder {
     if (this == source) return result;
     if (this == reverse) return result.reversed.toList();
     final names = titles.toList();
+    final keys = {
+      for (final index in result) index: ChapterTitleSortKey(names[index]),
+    };
     result.sort((a, b) {
-      final compared = naturalCompare(names[a], names[b]);
+      final compared = keys[a]!.compareTo(keys[b]!);
       if (compared == 0) return a.compareTo(b);
       return this == titleDescending ? -compared : compared;
     });

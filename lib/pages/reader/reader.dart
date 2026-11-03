@@ -1,6 +1,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -50,6 +51,7 @@ import 'package:venera/utils/chapter_navigation.dart';
 import 'package:venera/components/chapter_order_button.dart';
 import 'package:venera/utils/reader_appearance.dart';
 import 'package:venera/utils/reader_page_layout.dart';
+import 'package:venera/utils/reader_spread_geometry.dart';
 import 'package:venera/utils/volume.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -144,10 +146,7 @@ class _ReaderState extends State<Reader>
       if (!forward && controller.isAtChapterStart) {
         return !isFirstChapterOfGroup && toPrevChapter(toLastPage: true);
       }
-      if (forward ? toNextPage() : toPrevPage()) return true;
-      // The first/last image can be taller or wider than the viewport. Its
-      // page number is not a chapter boundary: scroll its remaining content
-      // instead of falling through to gallery-style chapter navigation.
+      // Step through long images by viewport, regardless of their page number.
       return controller.scrollWithinPage(forward: forward);
     }
     if (forward) {
@@ -171,14 +170,49 @@ class _ReaderState extends State<Reader>
       imagesPerPage > 1 &&
       images?.isNotEmpty == true;
 
+  Future<void> reloadVisibleImages() async {
+    final states = switch (_imageViewController) {
+      _GalleryModeState controller => controller.imageStates,
+      _ContinuousModeState controller => controller.imageStates,
+      _ => <State<ComicImage>>{},
+    };
+    final box = context.findRenderObject() as RenderBox;
+    final viewport = box.localToGlobal(Offset.zero) & box.size;
+    for (final state in states.toList()) {
+      if (!state.mounted) continue;
+      final imageBox = state.context.findRenderObject() as RenderBox;
+      if (!viewport.overlaps(
+        imageBox.localToGlobal(Offset.zero) & imageBox.size,
+      )) {
+        continue;
+      }
+      try {
+        await (state as _ComicImageState).reload();
+      } catch (error, stack) {
+        Log.error('Reload Image', error, stack);
+        if (mounted) context.showMessage(message: error.toString());
+      }
+    }
+  }
+
   void shiftImage(int delta) {
     if (!canShiftImages) return;
     final start = imageLayout.range(page).$1;
     final target = (start + delta).clamp(0, images!.length - 1);
     if (target == start) return;
     final previousOffset = imageGroupingOffset;
+    if (start == 0 && delta > 0 && imageLayout.firstPageCount < imagesPerPage) {
+      imageGroupingOffset++;
+      page = 1;
+      update();
+      return;
+    }
     imageGroupingOffset = imageLayout.offsetForStart(target);
-    if (previousOffset == imageGroupingOffset) {
+    if (target == 0 && imageLayout.singleCover) {
+      imageGroupingOffset = previousOffset + 1;
+    }
+    if (twoPageSpread) imageGroupingAnchor = target;
+    if (previousOffset == imageGroupingOffset && !twoPageSpread) {
       toPage(imageLayout.pageForImage(target + 1), animate: false);
       return;
     }
@@ -233,6 +267,124 @@ class _ReaderState extends State<Reader>
   @override
   List<String>? images;
 
+  final spreadImageSizes = <int, Size>{};
+  final _spreadOverrides = <int, String>{};
+
+  @override
+  int spreadLayoutRevision = 0;
+
+  int? _initialSpreadImage;
+
+  String get _spreadSettingsKey => jsonEncode([type.sourceKey, cid, eid]);
+
+  @override
+  Set<int> get standaloneSpreadImages {
+    final result = <int>{
+      for (final entry in spreadImageSizes.entries)
+        if (isWideReaderImage(entry.value)) entry.key,
+    };
+    for (final entry in _spreadOverrides.entries) {
+      if (entry.value == 'spread') result.add(entry.key);
+      if (entry.value == 'page') result.remove(entry.key);
+    }
+    return result;
+  }
+
+  @override
+  Set<int> get joinedSpreadPairs => {
+    for (final entry in _spreadOverrides.entries)
+      if (entry.value == 'pair') entry.key,
+  };
+
+  /// Called once for a freshly loaded chapter, before constructing its gallery.
+  void prepareSpreadLayout() {
+    spreadImageSizes.clear();
+    _spreadOverrides.clear();
+    final saved = appdata.settings['readerSpreadOverrides'];
+    final chapterSettings = saved is Map ? saved[_spreadSettingsKey] : null;
+    if (chapterSettings is Map) {
+      for (final entry in chapterSettings.entries) {
+        final index = int.tryParse(entry.key.toString());
+        final kind = entry.value;
+        if (index != null &&
+            index >= 0 &&
+            index < images!.length &&
+            (kind == 'pair' || kind == 'spread' || kind == 'page')) {
+          _spreadOverrides[index] = kind as String;
+        }
+      }
+    }
+    spreadLayoutRevision++;
+    _page = imageLayout.pageForImage(_initialSpreadImage ?? 1);
+    _initialSpreadImage = null;
+  }
+
+  /// Decoding supplies dimensions without downloading the image a second time.
+  /// Preserve the source image, including when the comments screen is open.
+  bool applySpreadImageSizes(Map<int, Size> sizes) {
+    final oldStandalone = standaloneSpreadImages;
+    final wasComments = isOnChapterCommentsPage;
+    final image = imageLayout.range(page).$1 + 1;
+    spreadImageSizes.addAll(sizes);
+    if (setEquals(oldStandalone, standaloneSpreadImages)) return false;
+    spreadLayoutRevision++;
+    _page = wasComments ? maxPage + 1 : imageLayout.pageForImage(image);
+    // Invalidate an animation whose screen numbers belonged to the old layout.
+    _navigationId++;
+    _animationCount = 0;
+    _pendingPage = null;
+    update();
+    return true;
+  }
+
+  /// Overrides are per comic/chapter, independent of reader setting scopes.
+  void setSpreadOverride(String? kind, {int? imageIndex}) {
+    if (!twoPageSpread || !canShiftImages) return;
+    final (start, end) = imageLayout.range(page);
+    if (kind == 'pair' && end - start != 2) return;
+    final target = imageIndex ?? start;
+    if (target < start || target >= end) return;
+    if (kind != null && kind != 'pair' && kind != 'page' && kind != 'spread') {
+      return;
+    }
+    if (kind == null) {
+      // A forced single-page override may now be the second image of a pair.
+      for (var index = start; index < end; index++) {
+        _spreadOverrides.remove(index);
+      }
+    } else {
+      _spreadOverrides.remove(target);
+      if (_spreadOverrides[target - 1] == 'pair') {
+        _spreadOverrides.remove(target - 1);
+      }
+    }
+    if (kind == 'pair') {
+      if (_spreadOverrides[start - 1] == 'pair') {
+        _spreadOverrides.remove(start - 1);
+      }
+      _spreadOverrides.remove(start + 1);
+    }
+    if (kind != null) _spreadOverrides[kind == 'pair' ? start : target] = kind;
+    final saved = appdata.settings['readerSpreadOverrides'];
+    final all = saved is Map
+        ? Map<String, dynamic>.from(saved)
+        : <String, dynamic>{};
+    if (_spreadOverrides.isEmpty) {
+      all.remove(_spreadSettingsKey);
+    } else {
+      all[_spreadSettingsKey] = {
+        for (final entry in _spreadOverrides.entries)
+          entry.key.toString(): entry.value,
+      };
+    }
+    appdata.settings['readerSpreadOverrides'] = all;
+    unawaited(appdata.saveData());
+    spreadLayoutRevision++;
+    _page = imageLayout.pageForImage(start + 1);
+    updateHistory();
+    update();
+  }
+
   @override
   late ReaderMode mode;
 
@@ -283,6 +435,7 @@ class _ReaderState extends State<Reader>
       }
     }
     history = widget.history;
+    _initialSpreadImage = widget.initialPage ?? 1;
     if (!appdata.settings.getReaderSetting(
       cid,
       type.sourceKey,
@@ -605,20 +758,58 @@ class _ReaderState extends State<Reader>
 
 abstract mixin class _ImagePerPageHandler {
   int imageGroupingOffset = 0;
+  int? imageGroupingAnchor;
 
-  void resetImageGrouping() => imageGroupingOffset = 0;
+  Set<int> get standaloneSpreadImages;
+  Set<int> get joinedSpreadPairs;
+  int get spreadLayoutRevision;
 
-  ReaderPageLayout get imageLayout => ReaderPageLayout(
-    imageCount: images?.length ?? 0,
-    imagesPerPage: imagesPerPage,
-    singleCover: showSingleImageOnFirstPage(),
-    offset: imageGroupingOffset,
-  );
+  void resetImageGrouping() {
+    imageGroupingOffset = 0;
+    imageGroupingAnchor = null;
+  }
+
+  Object? _imageLayoutKey;
+  ReaderPageLayout? _cachedImageLayout;
+
+  ReaderPageLayout _layoutFor(int count, bool cover, bool spread) =>
+      ReaderPageLayout(
+        imageCount: images?.length ?? 0,
+        imagesPerPage: count,
+        singleCover: cover,
+        offset: imageGroupingOffset,
+        standaloneImages: spread ? standaloneSpreadImages : const {},
+        joinedPairs: spread ? joinedSpreadPairs : const {},
+        anchor: spread ? imageGroupingAnchor : null,
+      );
+
+  ReaderPageLayout get imageLayout {
+    final key = (
+      images,
+      imagesPerPage,
+      showSingleImageOnFirstPage(),
+      imageGroupingOffset,
+      imageGroupingAnchor,
+      twoPageSpread,
+      spreadLayoutRevision,
+    );
+    if (key != _imageLayoutKey) {
+      _imageLayoutKey = key;
+      _cachedImageLayout = _layoutFor(
+        imagesPerPage,
+        showSingleImageOnFirstPage(),
+        twoPageSpread,
+      );
+    }
+    return _cachedImageLayout!;
+  }
+
   late int _lastImagesPerPage;
 
   late bool _lastOrientation;
 
   late bool _lastSingleImageOnFirstPage;
+  late bool _lastTwoPageSpread;
 
   /// Track if we were on the chapter comments page before orientation change
   bool _wasOnCommentsPage = false;
@@ -647,6 +838,7 @@ abstract mixin class _ImagePerPageHandler {
   void initImagesPerPage(int initialPage) {
     _lastImagesPerPage = imagesPerPage;
     _lastSingleImageOnFirstPage = showSingleImageOnFirstPage();
+    _lastTwoPageSpread = twoPageSpread;
     _lastOrientation = isPortrait;
     _wasOnCommentsPage = false;
     if (imagesPerPage != 1) {
@@ -697,11 +889,10 @@ abstract mixin class _ImagePerPageHandler {
 
   /// Calculate maxPage with a specific imagesPerPage value
   int _calcMaxPage(int imagesPerPageValue, bool singleImageOnFirstPage) {
-    return ReaderPageLayout(
-      imageCount: images?.length ?? 0,
-      imagesPerPage: imagesPerPageValue,
-      singleCover: singleImageOnFirstPage,
-      offset: imageGroupingOffset,
+    return _layoutFor(
+      imagesPerPageValue,
+      singleImageOnFirstPage,
+      _lastTwoPageSpread,
     ).pageCount;
   }
 
@@ -711,6 +902,7 @@ abstract mixin class _ImagePerPageHandler {
     bool currentOrientation = isPortrait;
 
     if (_lastImagesPerPage != currentImagesPerPage ||
+        _lastTwoPageSpread != twoPageSpread ||
         _lastOrientation != currentOrientation ||
         _lastSingleImageOnFirstPage != showSingleImageOnFirstPage()) {
       // Calculate old maxPage using old imagesPerPage to correctly determine
@@ -728,6 +920,7 @@ abstract mixin class _ImagePerPageHandler {
       _lastImagesPerPage = currentImagesPerPage;
       _lastOrientation = currentOrientation;
       _lastSingleImageOnFirstPage = showSingleImageOnFirstPage();
+      _lastTwoPageSpread = twoPageSpread;
     }
   }
 
@@ -737,14 +930,14 @@ abstract mixin class _ImagePerPageHandler {
     int newImagesPerPage,
   ) {
     final previousImageIndex =
-        ReaderPageLayout(
-          imageCount: images?.length ?? 0,
-          imagesPerPage: oldImagesPerPage,
-          singleCover: _lastSingleImageOnFirstPage,
-          offset: imageGroupingOffset,
+        _layoutFor(
+          oldImagesPerPage,
+          _lastSingleImageOnFirstPage,
+          _lastTwoPageSpread,
         ).range(page).$1 +
         1;
     if (oldImagesPerPage != newImagesPerPage ||
+        _lastTwoPageSpread != twoPageSpread ||
         _lastSingleImageOnFirstPage != showSingleImageOnFirstPage()) {
       resetImageGrouping();
     }

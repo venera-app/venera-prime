@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:venera/foundation/search_history.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -17,6 +19,64 @@ class Appdata with Init {
   final Settings settings = Settings._create();
 
   var searchHistory = <String>[];
+  var searchRecords = <SearchHistoryEntry>[];
+  Timer? _searchSaveTimer;
+  bool _searchProgressDirty = false;
+
+  List<SearchHistoryEntry> get searchHistoryEntries => [
+    ...searchRecords,
+    for (final word in searchHistory)
+      if (!searchRecords.any((e) => e.keyword == word))
+        SearchHistoryEntry(keyword: word),
+  ].take(50).toList();
+
+  void rememberSearch(SearchHistoryEntry entry) {
+    searchRecords.removeWhere((e) => e.identity == entry.identity);
+    searchRecords.insert(0, entry);
+    if (searchRecords.length > 50) searchRecords.removeLast();
+    searchHistory.remove(entry.keyword);
+    searchHistory.insert(0, entry.keyword);
+    final retained = searchHistoryEntries.map((e) => e.keyword).toSet();
+    searchHistory.removeWhere((word) => !retained.contains(word));
+    _searchProgressDirty = true;
+    unawaited(saveData(false));
+  }
+
+  void updateSearchPage(String identity, int page) {
+    final index = searchRecords.indexWhere((e) => e.identity == identity);
+    if (index < 0 || page < 1 || searchRecords[index].page == page) return;
+    searchRecords[index] = searchRecords[index].atPage(page);
+    _searchProgressDirty = true;
+    _searchSaveTimer?.cancel();
+    _searchSaveTimer = Timer(const Duration(seconds: 2), () {
+      _searchSaveTimer = null;
+      unawaited(saveData(false));
+    });
+  }
+
+  /// Persist progress locally while scrolling; sync once on leaving a search.
+  Future<void> flushSearchProgress() async {
+    _searchSaveTimer?.cancel();
+    _searchSaveTimer = null;
+    if (!_searchProgressDirty) return;
+    _searchProgressDirty = false;
+    await saveData();
+  }
+
+  void removeSearchEntry(SearchHistoryEntry entry) {
+    searchRecords.removeWhere((e) => e.identity == entry.identity);
+    if (!searchRecords.any((e) => e.keyword == entry.keyword)) {
+      searchHistory.remove(entry.keyword);
+    }
+    saveData();
+  }
+
+  void _restoreSearchRecords(dynamic value) {
+    _searchSaveTimer?.cancel();
+    _searchSaveTimer = null;
+    _searchProgressDirty = false;
+    searchRecords = SearchHistoryEntry.decode(value);
+  }
 
   bool _isSavingData = false;
 
@@ -123,16 +183,22 @@ class Appdata with Init {
 
   void removeSearchHistory(String keyword) {
     searchHistory.remove(keyword);
+    searchRecords.removeWhere((e) => e.keyword == keyword);
     saveData();
   }
 
   void clearSearchHistory() {
     searchHistory.clear();
+    _restoreSearchRecords(null);
     saveData();
   }
 
   Map<String, dynamic> toJson() {
-    return {'settings': settings._data, 'searchHistory': searchHistory};
+    return {
+      'settings': settings._data,
+      'searchHistory': searchHistory,
+      'searchRecords': searchRecords.map((e) => e.toJson()).toList(),
+    };
   }
 
   /// Only for restoring an in-process snapshot after a failed import.
@@ -140,6 +206,7 @@ class Appdata with Init {
   void restoreMemorySnapshot(Map<String, dynamic> snapshot) {
     settings._restoreSnapshot(Map<String, dynamic>.from(snapshot['settings']));
     searchHistory = List<String>.from(snapshot['searchHistory']);
+    _restoreSearchRecords(snapshot['searchRecords']);
   }
 
   List<String> splitField(String merged) {
@@ -297,6 +364,7 @@ class Appdata with Init {
           .take(50)
           .toList();
     }
+    _restoreSearchRecords(data['searchRecords']);
     if (persist) {
       saveData();
     }
@@ -353,6 +421,7 @@ class Appdata with Init {
           }
         }
       }
+      _restoreSearchRecords(json is Map ? json['searchRecords'] : null);
       final loadedHistory = json is Map ? json['searchHistory'] : null;
       if (loadedHistory is List) {
         searchHistory = loadedHistory
@@ -440,6 +509,7 @@ class Settings with ChangeNotifier {
     'autoPageTurningInterval': 5, // in seconds
     'readerMode': 'galleryLeftToRight', // values of [ReaderMode]
     'readerTwoPageSpread': false,
+    'readerSpreadOverrides': <String, dynamic>{},
     'readerPageMarginEnabled': false,
     'readerPageMarginPercent': 19.3,
     'readerScreenPicNumberForLandscape': 1, // 1 - 5

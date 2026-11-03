@@ -95,7 +95,9 @@ class DataSync with ChangeNotifier {
     ComicSourceManager().addListener(onDataChanged);
     if (App.isDesktop) {
       Future.delayed(const Duration(seconds: 1), () {
-        var controller = WindowFrame.of(App.rootContext);
+        final context = App.rootNavigatorKey.currentContext;
+        if (context == null || !context.mounted) return;
+        var controller = WindowFrame.of(context);
         controller.addCloseListener(_handleWindowClose);
       });
     }
@@ -150,6 +152,24 @@ class DataSync with ChangeNotifier {
   Future<Res<bool>>? _pendingUpload;
   bool _pendingUploadForced = false;
 
+  int _automaticUploadBatches = 0;
+  bool _batchChanged = false;
+
+  /// Source requests can persist tokens while a folder is being checked.
+  /// Keep those changes local until all overlapping checks have finished.
+  Future<T> batchAutomaticUploads<T>(Future<T> Function() action) async {
+    _automaticUploadBatches++;
+    try {
+      return await action();
+    } finally {
+      _automaticUploadBatches--;
+      if (_automaticUploadBatches == 0 && _batchChanged) {
+        _batchChanged = false;
+        unawaited(uploadData());
+      }
+    }
+  }
+
   bool get uploadQueued => _pendingUpload != null;
 
   String? _lastError;
@@ -202,6 +222,10 @@ class DataSync with ChangeNotifier {
     // Gate every automatic caller before exporting, incrementing dataVersion,
     // notifying listeners, or retaining a pending task.
     if (!force && !isEnabled) return Future.value(const Res(true));
+    if (!force && _automaticUploadBatches > 0) {
+      _batchChanged = true;
+      return Future.value(const Res(true));
+    }
     if (_pendingUpload != null) {
       _pendingUploadForced |= force;
       return _pendingUpload!;

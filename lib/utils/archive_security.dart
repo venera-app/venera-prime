@@ -14,7 +14,7 @@ abstract final class ArchiveSecurity {
   static const maxSingleFileBytes = 256 * 1024 * 1024;
   static const maxTotalBytes = 1024 * 1024 * 1024;
   static const maxCompressionRatio = 1000;
-  static const maxArchiveBytes = 512 * 1024 * 1024;
+  static const maxArchiveBytes = 2 * 1024 * 1024 * 1024;
 
   static String safeTarget(String root, String archiveName) {
     final normalized = archiveName.replaceAll('\\', '/');
@@ -80,93 +80,97 @@ abstract final class ArchiveSecurity {
     if (archiveBytes > maxArchiveBytes) {
       throw const FormatException('Archive is too large');
     }
-    final bytes = await input.readAsBytes();
-    final directory = archive_pkg.ZipDirectory()
-      ..read(archive_pkg.InputMemoryStream(bytes));
-    final root = path_utils.canonicalize(output.path);
-    final seen = <String>{};
-    dynamic nativeArchive;
-    final verifiedSizes = <String, int>{};
-    // Native Venera 1.6 ZIPs have correct central-directory sizes, while
-    // archive's lazy entry objects can report zero on every platform.
-    // Preflight the directory before decoding content (including symlinks).
-    var total = 0;
-    for (final entry in directory.fileHeaders) {
-      final target = safeTarget(root, entry.filename);
-      if (!seen.add(target)) {
-        throw const FormatException('Archive contains duplicate entry names');
-      }
-      if (((entry.externalFileAttributes >> 16) & 0xf000) == 0xa000) {
-        throw const FormatException('Archive symlinks are not supported');
-      }
-      final size = entry.uncompressedSize;
-      if (size < 0 || size > maxSingleFileBytes) {
-        throw const FormatException('Archive entry is too large');
-      }
-      verifiedSizes[entry.filename] = size;
-      total += size;
-    }
-    _checkLimits(
-      entries: directory.fileHeaders.length,
-      totalBytes: total,
-      archiveBytes: archiveBytes,
-    );
-    final archive = archive_pkg.ZipDecoder().decodeBytes(bytes);
-    await output.create(recursive: true);
+    final stream = archive_pkg.InputFileStream(input.path);
     try {
-      for (var index = 0; index < archive.length; index++) {
-        final entry = archive[index];
-        if (!verifiedSizes.containsKey(entry.name)) {
-          throw const FormatException(
-            'Archive local and central entry names differ',
-          );
+      final directory = archive_pkg.ZipDirectory()..read(stream);
+      final root = path_utils.canonicalize(output.path);
+      final seen = <String>{};
+      dynamic nativeArchive;
+      final verifiedSizes = <String, int>{};
+      // Native Venera 1.6 ZIPs have correct central-directory sizes, while
+      // archive's lazy entry objects can report zero on every platform.
+      // Preflight the directory before decoding content (including symlinks).
+      var total = 0;
+      for (final entry in directory.fileHeaders) {
+        final target = safeTarget(root, entry.filename);
+        if (!seen.add(target)) {
+          throw const FormatException('Archive contains duplicate entry names');
         }
-        final target = safeTarget(root, entry.name);
-        _checkExistingPath(root, target);
-        if (entry.isSymbolicLink) {
+        if (((entry.externalFileAttributes >> 16) & 0xf000) == 0xa000) {
           throw const FormatException('Archive symlinks are not supported');
         }
-        if (entry.isDirectory) {
-          await Directory(target).create(recursive: true);
-          continue;
+        final size = entry.uncompressedSize;
+        if (size < 0 || size > maxSingleFileBytes) {
+          throw const FormatException('Archive entry is too large');
         }
-        final expectedSize = verifiedSizes[entry.name] ?? entry.size;
-        Uint8List? content;
-        var extractedByNative = false;
-        try {
-          content = entry.readBytes();
-        } catch (_) {
-          content = null;
-        }
-        // zip_flutter creates valid archives whose entries may not be readable
-        // through archive's lazy FileContent implementation on Android.
-        if (content == null || content.length != expectedSize) {
-          await zip_flutter.loadLibrary();
-          nativeArchive ??= zip_flutter.ZipFile.openRead(input.path);
-          // Do not couple two ZIP readers by their entry indexes. Readers
-          // may represent directory or duplicate entries differently.
-          final nativeEntry = nativeArchive.getEntryByName(entry.name);
-          final targetFile = File(target);
-          await targetFile.parent.create(recursive: true);
-          nativeEntry.writeToFile(target);
-          extractedByNative = true;
-          final actualLength = await targetFile.length();
-          if (actualLength != expectedSize) {
-            throw FormatException(
-              'Archive entry size mismatch: expected $expectedSize, got $actualLength',
+        verifiedSizes[entry.filename] = size;
+        total += size;
+      }
+      _checkLimits(
+        entries: directory.fileHeaders.length,
+        totalBytes: total,
+        archiveBytes: archiveBytes,
+      );
+      stream.position = 0;
+      final archive = archive_pkg.ZipDecoder().decodeStream(stream);
+      await output.create(recursive: true);
+      try {
+        for (var index = 0; index < archive.length; index++) {
+          final entry = archive[index];
+          if (!verifiedSizes.containsKey(entry.name)) {
+            throw const FormatException(
+              'Archive local and central entry names differ',
             );
           }
+          final target = safeTarget(root, entry.name);
+          _checkExistingPath(root, target);
+          if (entry.isSymbolicLink) {
+            throw const FormatException('Archive symlinks are not supported');
+          }
+          if (entry.isDirectory) {
+            await Directory(target).create(recursive: true);
+            continue;
+          }
+          final expectedSize = verifiedSizes[entry.name] ?? entry.size;
+          Uint8List? content;
+          var extractedByNative = false;
+          try {
+            content = entry.readBytes();
+          } catch (_) {
+            content = null;
+          }
+          // zip_flutter creates valid archives whose entries may not be readable
+          // through archive's lazy FileContent implementation on Android.
+          if (content == null || content.length != expectedSize) {
+            await zip_flutter.loadLibrary();
+            nativeArchive ??= zip_flutter.ZipFile.openRead(input.path);
+            // Do not couple two ZIP readers by their entry indexes. Readers
+            // may represent directory or duplicate entries differently.
+            final nativeEntry = nativeArchive.getEntryByName(entry.name);
+            final targetFile = File(target);
+            await targetFile.parent.create(recursive: true);
+            nativeEntry.writeToFile(target);
+            extractedByNative = true;
+            final actualLength = await targetFile.length();
+            if (actualLength != expectedSize) {
+              throw FormatException(
+                'Archive entry size mismatch: expected $expectedSize, got $actualLength',
+              );
+            }
+          }
+          if (extractedByNative) continue;
+          if (content == null || content.length != expectedSize) {
+            throw const FormatException('Archive entry could not be read');
+          }
+          final targetFile = File(target);
+          await targetFile.parent.create(recursive: true);
+          await targetFile.writeAsBytes(content, flush: true);
         }
-        if (extractedByNative) continue;
-        if (content == null || content.length != expectedSize) {
-          throw const FormatException('Archive entry could not be read');
-        }
-        final targetFile = File(target);
-        await targetFile.parent.create(recursive: true);
-        await targetFile.writeAsBytes(content, flush: true);
+      } finally {
+        nativeArchive?.close();
       }
     } finally {
-      nativeArchive?.close();
+      await stream.close();
     }
   }
 

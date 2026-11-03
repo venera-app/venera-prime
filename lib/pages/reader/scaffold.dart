@@ -313,6 +313,15 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                     onPressed: openChapterComments,
                   ),
                 ),
+              IconButton(
+                tooltip: 'Reload'.tl,
+                icon: const Icon(Icons.refresh),
+                onPressed: context.reader.isLoading
+                    ? null
+                    : () async {
+                        await context.reader.reloadVisibleImages();
+                      },
+              ),
               Tooltip(
                 message: "Settings".tl,
                 child: IconButton(
@@ -475,6 +484,52 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     }
 
     final buttons = [
+      if (context.reader.twoPageSpread)
+        PopupMenuButton<String>(
+          key: const Key('reader-spread-options'),
+          tooltip: 'Spread layout'.tl,
+          icon: const Icon(Icons.menu_book_outlined),
+          enabled: context.reader.canShiftImages,
+          onSelected: (value) {
+            final parts = value.split(':');
+            context.reader.setSpreadOverride(
+              parts.first == 'auto' ? null : parts.first,
+              imageIndex: parts.length > 1 ? int.tryParse(parts[1]) : null,
+            );
+            update();
+          },
+          itemBuilder: (context) {
+            final (start, end) = this.context.reader.imageLayout.range(
+              this.context.reader.page,
+            );
+            return [
+              if (end - start == 2)
+                CheckedPopupMenuItem<String>(
+                  value: 'pair',
+                  checked: this.context.reader.joinedSpreadPairs.contains(
+                    start,
+                  ),
+                  child: Text('Keep these pages as a spread'.tl),
+                ),
+              for (var index = start; index < end; index++) ...[
+                PopupMenuItem(
+                  value: 'spread:$index',
+                  child: Text(
+                    'P${index + 1}: ${"Show image across both pages".tl}',
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'page:$index',
+                  child: Text('P${index + 1}: ${"Treat image as one page".tl}'),
+                ),
+              ],
+              PopupMenuItem(
+                value: 'auto',
+                child: Text('Reset spread layout'.tl),
+              ),
+            ];
+          },
+        ),
       IconButton(
         key: const Key('reader-page-margin-toggle'),
         tooltip: 'Page margin'.tl,

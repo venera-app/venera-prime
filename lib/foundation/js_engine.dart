@@ -56,6 +56,8 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
 
   bool _closed = true;
 
+  bool get isRunning => !_closed && _engine != null;
+
   Dio? _dio;
 
   static void reset() {

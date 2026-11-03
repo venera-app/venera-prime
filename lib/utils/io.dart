@@ -185,10 +185,25 @@ Future<void> copyDirectory(Directory source, Directory destination) async {
     String newPath = FilePath.join(destination.path, content.name);
 
     if (content is File) {
-      var resultFile = File(newPath);
-      resultFile.createSync();
-      var data = content.readAsBytesSync();
-      resultFile.writeAsBytesSync(data);
+      // Reopen listing handles and copy in bounded chunks; SAF may return
+      // short reads and libraries can contain files larger than available RAM.
+      final input = File(content.path).openSync();
+      try {
+        final target = File(newPath)..createSync();
+        final output = target.openSync(mode: FileMode.write);
+        try {
+          while (true) {
+            final bytes = input.readSync(64 * 1024);
+            if (bytes.isEmpty) break;
+            output.writeFromSync(bytes);
+          }
+          output.flushSync();
+        } finally {
+          output.closeSync();
+        }
+      } finally {
+        input.closeSync();
+      }
     } else if (content is Directory) {
       Directory newDirectory = Directory(newPath);
       newDirectory.createSync();

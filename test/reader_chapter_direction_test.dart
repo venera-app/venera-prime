@@ -201,11 +201,13 @@ void main() {
           await settle();
           expect(
             state.page,
-            2,
+            mode.isContinuous ? inInclusiveRange(1, 2) : 2,
             reason: '${mode.key}, reverse=$reversed, max=${state.maxPage}',
           );
-          await tester.tapAt(next);
-          await settle();
+          for (var step = 0; step < 10 && state.chapter == 1; step++) {
+            await tester.tapAt(next);
+            await settle();
+          }
           expect(state.chapter, 2);
           expect(state.page, 1);
           await tester.tapAt(prev);
@@ -213,7 +215,7 @@ void main() {
           expect(state.chapter, 1);
           expect(
             state.page,
-            2,
+            mode.isContinuous ? inInclusiveRange(1, 2) : 2,
             reason: '${mode.key}, reverse=$reversed, max=${state.maxPage}',
           );
           await tester.tapAt(prev);
@@ -232,7 +234,7 @@ void main() {
           expect(state.chapter, 2);
           expect(
             state.page,
-            2,
+            mode.isContinuous ? inInclusiveRange(1, 2) : 2,
             reason: '${mode.key}, reverse=$reversed, max=${state.maxPage}',
           );
           // Swipes use the same reading order irrespective of reversed taps.
@@ -674,6 +676,17 @@ void main() {
                     .first,
               )
               .position;
+          // A page action advances 90% of a viewport inside the first long
+          // image, rather than jumping to the next image.
+          final beforeStep = position().pixels;
+          final viewportStep = position().viewportDimension * .9;
+          state.turnPage(forward: true);
+          await settle();
+          expect(state.chapter, 2);
+          expect(state.page, 1);
+          expect(position().pixels - beforeStep, closeTo(viewportStep, 1));
+          state.toPage(1, animate: false);
+          await settle();
           // A real drag puts the first long image partway through the viewport.
           final drag = await tester.startGesture(rect.center);
           await drag.moveBy(
@@ -720,6 +733,9 @@ void main() {
           ) {
             await settle();
           }
+          // Wait for restored image extents before explicitly selecting page 2.
+          await _waitForContinuousImages(tester);
+          await settle();
           // Test the forward case from the start of the decoded final image.
           state.toPage(2, animate: false);
           await settle();

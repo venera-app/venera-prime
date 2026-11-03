@@ -20,13 +20,20 @@ class _ImageFavoritesItem extends StatefulWidget {
 }
 
 class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   late final imageFavorites = widget.imageFavoritesComic.images.toList();
 
   void goComicInfo(ImageFavoritesComic comic) {
-    App.mainNavigatorKey?.currentContext?.to(() => ComicPage(
-          id: comic.id,
-          sourceKey: comic.sourceKey,
-        ));
+    App.mainNavigatorKey?.currentContext?.to(
+      () => ComicPage(id: comic.id, sourceKey: comic.sourceKey),
+    );
   }
 
   void goReaderPage(ImageFavoritesComic comic, int ep, int page) {
@@ -41,11 +48,14 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
   }
 
   void goPhotoView(ImageFavorite imageFavorite) {
-    Navigator.of(App.rootContext).push(MaterialPageRoute(
+    Navigator.of(App.rootContext).push(
+      MaterialPageRoute(
         builder: (context) => ImageFavoritesPhotoView(
-              comic: widget.imageFavoritesComic,
-              imageFavorite: imageFavorite,
-            )));
+          comic: widget.imageFavoritesComic,
+          imageFavorite: imageFavorite,
+        ),
+      ),
+    );
   }
 
   void copyTitle() {
@@ -67,42 +77,38 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
   }
 
   void showMenu(Offset location, BuildContext context) {
-    showMenuX(
-      App.rootContext,
-      location,
-      [
-        MenuEntry(
-          icon: Icons.chrome_reader_mode_outlined,
-          text: 'Details'.tl,
-          onClick: () {
-            goComicInfo(widget.imageFavoritesComic);
-          },
-        ),
-        MenuEntry(
-          icon: Icons.copy,
-          text: 'Copy Title'.tl,
-          onClick: () {
-            copyTitle();
-          },
-        ),
-        MenuEntry(
-          icon: Icons.select_all,
-          text: 'Select All'.tl,
-          onClick: () {
-            for (var ele in widget.imageFavoritesComic.images) {
-              widget.addSelected(ele);
-            }
-          },
-        ),
-        MenuEntry(
-          icon: Icons.read_more,
-          text: 'Photo View'.tl,
-          onClick: () {
-            goPhotoView(widget.imageFavoritesComic.images.first);
-          },
-        ),
-      ],
-    );
+    showMenuX(App.rootContext, location, [
+      MenuEntry(
+        icon: Icons.chrome_reader_mode_outlined,
+        text: 'Details'.tl,
+        onClick: () {
+          goComicInfo(widget.imageFavoritesComic);
+        },
+      ),
+      MenuEntry(
+        icon: Icons.copy,
+        text: 'Copy Title'.tl,
+        onClick: () {
+          copyTitle();
+        },
+      ),
+      MenuEntry(
+        icon: Icons.select_all,
+        text: 'Select All'.tl,
+        onClick: () {
+          for (var ele in widget.imageFavoritesComic.images) {
+            widget.addSelected(ele);
+          }
+        },
+      ),
+      MenuEntry(
+        icon: Icons.read_more,
+        text: 'Photo View'.tl,
+        onClick: () {
+          goPhotoView(widget.imageFavoritesComic.images.first);
+        },
+      ),
+    ]);
   }
 
   @override
@@ -136,10 +142,21 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
             buildTop(),
             SizedBox(
               height: 145,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemBuilder: buildItem,
-                itemCount: imageFavorites.length,
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(
+                  dragDevices: PointerDeviceKind.values.toSet(),
+                  scrollbars: false,
+                ),
+                child: Scrollbar(
+                  controller: _scrollController,
+                  thumbVisibility: App.isDesktop,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    scrollDirection: Axis.horizontal,
+                    itemBuilder: buildItem,
+                    itemCount: imageFavorites.length,
+                  ),
+                ),
               ),
             ).paddingHorizontal(8),
             buildBottom(),
@@ -205,7 +222,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
               style: ts.s10,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-            )
+            ),
           ],
         ),
       ),
@@ -218,10 +235,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
         Expanded(
           child: Text(
             widget.imageFavoritesComic.title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-              fontSize: 16.0,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 16.0),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             softWrap: true,
@@ -234,8 +248,9 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-              "${imageFavorites.length}/${widget.imageFavoritesComic.maxPageFromEp}",
-              style: ts.s12),
+            "${imageFavorites.length}/${widget.imageFavoritesComic.maxPageFromEp}",
+            style: ts.s12,
+          ),
         ),
       ],
     ).paddingHorizontal(16).paddingVertical(8);
@@ -243,8 +258,9 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
 
   Widget buildBottom() {
     var enableTranslate = App.locale.languageCode == 'zh';
-    String time =
-        DateFormat('yyyy-MM-dd').format(widget.imageFavoritesComic.time);
+    String time = DateFormat(
+      'yyyy-MM-dd',
+    ).format(widget.imageFavoritesComic.time);
     List<String> tags = [];
     for (var tag in widget.imageFavoritesComic.tags) {
       var text = enableTranslate ? tag.translateTagsToCN : tag;
@@ -262,9 +278,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
         Text(
           "$time | ${comicSource?.name ?? "Unknown"}",
           textAlign: TextAlign.left,
-          style: const TextStyle(
-            fontSize: 12.0,
-          ),
+          style: const TextStyle(fontSize: 12.0),
         ).paddingRight(8),
         if (tags.isNotEmpty)
           Expanded(
@@ -280,7 +294,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-          )
+          ),
       ],
     ).paddingHorizontal(8).paddingBottom(8);
   }

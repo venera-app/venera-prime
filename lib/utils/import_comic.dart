@@ -15,6 +15,7 @@ import 'package:venera/utils/translations.dart';
 import 'cbz.dart';
 import 'io.dart';
 import 'natural_sort.dart';
+import 'chapter_title_sort.dart';
 
 class ImportComic {
   final String? selectedFolder;
@@ -437,7 +438,10 @@ class ImportComic {
           fileList.first;
     }
 
-    chapters.sort(naturalCompare);
+    chapters.sort((a, b) {
+      final result = compareChapterTitles(a, b);
+      return result == 0 ? naturalCompare(a, b) : result;
+    });
     if (hasChapters && coverPath == '') {
       // use the first image in the first chapter as the cover
       var firstChapter = Directory('${directory.path}/${chapters.first}');

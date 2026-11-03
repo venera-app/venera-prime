@@ -8,6 +8,49 @@ import 'package:venera/foundation/local.dart';
 
 void main() {
   test(
+    'new local chapters use one sequence for mixed chapter name formats',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'chapter-number-order-',
+      );
+      final localDirectory = Directory('${directory.path}/local')..createSync();
+      App.dataPath = directory.path;
+      File(
+        '${directory.path}/local_path',
+      ).writeAsStringSync(localDirectory.path);
+      final comicDirectory = Directory('${localDirectory.path}/Mixed chapters')
+        ..createSync();
+      for (final title in ['第10话', '2', '第 １ 話', 'Chapter 3']) {
+        final chapter = Directory('${comicDirectory.path}/$title')
+          ..createSync();
+        File('${chapter.path}/1.jpg').writeAsBytesSync([1]);
+      }
+      final manager = LocalManager();
+      manager.close();
+      try {
+        await manager.init();
+        await manager.refresh();
+        final comic = manager.getComics(LocalSortType.timeDesc).single;
+        expect(comic.chapters!.titles.toList(), [
+          '第 １ 話',
+          '2',
+          'Chapter 3',
+          '第10话',
+        ]);
+        expect(comic.chapters!.ids.toList(), [
+          '第 １ 話',
+          '2',
+          'Chapter 3',
+          '第10话',
+        ]);
+      } finally {
+        manager.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'refresh keeps source chapters while detecting downloaded directories',
     () async {
       final directory = await Directory.systemTemp.createTemp(

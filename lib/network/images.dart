@@ -135,7 +135,9 @@ abstract class ImageDownloader {
     final stream = _StreamWrapper<ImageDownloadProgress>(
       _loadComicImage(imageKey, sourceKey, cid, eid),
       (wrapper) {
-        _loadingImages.remove(cacheKey);
+        if (identical(_loadingImages[cacheKey], wrapper)) {
+          _loadingImages.remove(cacheKey);
+        }
       },
     );
     _loadingImages[cacheKey] = stream;
@@ -247,18 +249,17 @@ abstract class ImageDownloader {
         var imageData = buffer.takeBytes();
 
         if (configs['onResponse'] is JSInvokable) {
-          dynamic result = (configs['onResponse'] as JSInvokable)([imageData]);
-          if (result is Future) {
-            result = await result;
-          }
-          if (result is List<int>) {
+          final callback = configs.remove('onResponse') as JSInvokable;
+          try {
+            dynamic result = callback([imageData]);
+            if (result is Future) result = await result;
+            if (result is! List<int>) throw "Error: Invalid onResponse result.";
             imageData = result is Uint8List
                 ? result
                 : Uint8List.fromList(result);
-          } else {
-            throw "Error: Invalid onResponse result.";
+          } finally {
+            callback.free();
           }
-          (configs['onResponse'] as JSInvokable).free();
         }
 
         if (configs['modifyImage'] != null) {
@@ -269,6 +270,11 @@ abstract class ImageDownloader {
           imageData = newData;
         }
 
+        if (!detectFileType(imageData).mime.startsWith('image/')) {
+          throw const FormatException(
+            'Image response or processing result is not an image',
+          );
+        }
         if (cacheResult) {
           await CacheManager().writeCache(cacheKey, imageData);
         }
@@ -282,9 +288,13 @@ abstract class ImageDownloader {
         if (retryLimit < 0 || onLoadFailed == null) {
           rethrow;
         }
-        var newConfig = await onLoadFailed();
-        (configs['onLoadFailed'] as JSInvokable).free();
-        onLoadFailed = null;
+        Map<String, dynamic>? newConfig;
+        try {
+          newConfig = await onLoadFailed();
+        } finally {
+          (configs['onLoadFailed'] as JSInvokable).free();
+          onLoadFailed = null;
+        }
         if (newConfig == null) {
           rethrow;
         }

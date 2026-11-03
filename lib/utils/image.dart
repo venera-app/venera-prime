@@ -17,51 +17,65 @@ class Image {
   Image(this._data, this.width, this.height) {
     if (_data.length != width * height) {
       throw ArgumentError(
-          'Invalid argument: data length must be equal to width * height.');
+        'Invalid argument: data length must be equal to width * height.',
+      );
     }
   }
 
   Image.empty(this.width, this.height) : _data = Uint32List(width * height);
 
   static Future<Image> decodeImage(Uint8List data) async {
-    var codec = await decodeImageBytes(data);
-    var frame = await codec.getNextFrame();
-    codec.dispose();
-    var info = await frame.image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
-    if (info == null) {
-      throw Exception('Failed to decode image');
+    final codec = await decodeImageBytes(data);
+    ui.Image? decoded;
+    try {
+      decoded = (await codec.getNextFrame()).image;
+      final info = await decoded.toByteData(
+        format: ui.ImageByteFormat.rawStraightRgba,
+      );
+      if (info == null) throw StateError('Failed to decode image');
+      return Image(
+        Uint32List.fromList(
+          info.buffer.asUint32List(info.offsetInBytes, info.lengthInBytes ~/ 4),
+        ),
+        decoded.width,
+        decoded.height,
+      );
+    } finally {
+      decoded?.dispose();
+      codec.dispose();
     }
-    var image = Image(
-      info.buffer.asUint32List(),
-      frame.image.width,
-      frame.image.height,
-    );
-    frame.image.dispose();
-    return image;
   }
 
   Color getPixelAtIndex(int index) {
     if (index < 0 || index >= _data.length) {
       throw ArgumentError(
-          'Invalid argument: index must be in the range of [0, ${_data.length}).');
+        'Invalid argument: index must be in the range of [0, ${_data.length}).',
+      );
     }
     return Color.fromValue(_data[index]);
   }
 
   Image copyRange(int x, int y, int width, int height) {
+    if (x < 0 || y < 0 || width < 0 || height < 0) {
+      throw ArgumentError('Negative image region');
+    }
     if (width + x > this.width) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: x + width must be less than or equal to the image width.
         x: $x, width: $width, image width: ${this.width}
       '''
-          .trim());
+            .trim(),
+      );
     }
     if (height + y > this.height) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: y + height must be less than or equal to the image height.
         y: $y, height: $height, image height: ${this.height}
       '''
-          .trim());
+            .trim(),
+      );
     }
     var data = Uint32List(width * height);
     for (var j = 0; j < height; j++) {
@@ -73,19 +87,24 @@ class Image {
   }
 
   void fillImageAt(int x, int y, Image image) {
+    if (x < 0 || y < 0) throw ArgumentError('Negative image position');
     if (x + image.width > width) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: x + image width must be less than or equal to the image width.
         x: $x, image width: ${image.width}, image width: $width
       '''
-          .trim());
+            .trim(),
+      );
     }
     if (y + image.height > height) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: y + image height must be less than or equal to the image height.
         y: $y, image height: ${image.height}, image height: $height
       '''
-          .trim());
+            .trim(),
+      );
     }
     for (var j = 0; j < image.height && (j + y) < height; j++) {
       for (var i = 0; i < image.width && (i + x) < width; i++) {
@@ -95,34 +114,52 @@ class Image {
   }
 
   void fillImageRangeAt(
-      int x, int y, Image image, int srcX, int srcY, int width, int height) {
+    int x,
+    int y,
+    Image image,
+    int srcX,
+    int srcY,
+    int width,
+    int height,
+  ) {
+    if (x < 0 || y < 0 || srcX < 0 || srcY < 0 || width < 0 || height < 0) {
+      throw ArgumentError('Negative image region');
+    }
     if (x + width > this.width) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: x + width must be less than or equal to the image width.
         x: $x, width: $width, image width: ${this.width}
       '''
-          .trim());
+            .trim(),
+      );
     }
     if (y + height > this.height) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: y + height must be less than or equal to the image height.
         y: $y, height: $height, image height: ${this.height}
       '''
-          .trim());
+            .trim(),
+      );
     }
     if (srcX + width > image.width) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: srcX + width must be less than or equal to the image width.
         srcX: $srcX, width: $width, image width: ${image.width}
       '''
-          .trim());
+            .trim(),
+      );
     }
     if (srcY + height > image.height) {
-      throw ArgumentError('''
+      throw ArgumentError(
+        '''
         Invalid argument: srcY + height must be less than or equal to the image height.
         srcY: $srcY, height: $height, image height: ${image.height}
       '''
-          .trim());
+            .trim(),
+      );
     }
     for (var j = 0; j < height; j++) {
       for (var i = 0; i < width; i++) {
@@ -145,11 +182,13 @@ class Image {
   Color getPixel(int x, int y) {
     if (x < 0 || x >= width) {
       throw ArgumentError(
-          'Invalid argument: x must be in the range of [0, $width).');
+        'Invalid argument: x must be in the range of [0, $width).',
+      );
     }
     if (y < 0 || y >= height) {
       throw ArgumentError(
-          'Invalid argument: y must be in the range of [0, $height).');
+        'Invalid argument: y must be in the range of [0, $height).',
+      );
     }
     return Color.fromValue(_data[y * width + x]);
   }
@@ -157,23 +196,28 @@ class Image {
   void setPixel(int x, int y, Color color) {
     if (x < 0 || x >= width) {
       throw ArgumentError(
-          'Invalid argument: x must be in the range of [0, $width).');
+        'Invalid argument: x must be in the range of [0, $width).',
+      );
     }
     if (y < 0 || y >= height) {
       throw ArgumentError(
-          'Invalid argument: y must be in the range of [0, $height).');
+        'Invalid argument: y must be in the range of [0, $height).',
+      );
     }
     _data[y * width + x] = color.value;
   }
 
   Uint8List encodePng() {
-    var data = lodepng.encodePngToPointer(lodepng.Image(
-      _data.buffer.asUint8List(),
-      width,
-      height,
-    ));
-    return Pointer<Uint8>.fromAddress(data.address).asTypedList(data.length,
-        finalizer: lodepng.ByteBuffer.finalizer);
+    var data = lodepng.encodePngToPointer(
+      lodepng.Image(
+        _data.buffer.asUint8List(_data.offsetInBytes, _data.lengthInBytes),
+        width,
+        height,
+      ),
+    );
+    return Pointer<Uint8>.fromAddress(
+      data.address,
+    ).asTypedList(data.length, finalizer: lodepng.ByteBuffer.finalizer);
   }
 }
 
@@ -181,7 +225,7 @@ class Color {
   final int value;
 
   Color(int r, int g, int b, [int a = 255])
-      : value = (a << 24) | (r << 16) | (g << 8) | b;
+    : value = (a << 24) | (b << 16) | (g << 8) | r;
 
   Color.fromValue(this.value);
 
@@ -202,8 +246,9 @@ class JsEngine {
   JsEngine._() {
     _engine = FlutterQjs();
     _engine!.dispatch();
-    var setGlobalFunc =
-        _engine!.evaluate("(key, value) => { this[key] = value; }");
+    var setGlobalFunc = _engine!.evaluate(
+      "(key, value) => { this[key] = value; }",
+    );
     (setGlobalFunc as JSInvokable)(["sendMessage", _messageReceiver]);
     setGlobalFunc.free();
   }
@@ -307,10 +352,11 @@ Future<Uint8List> modifyImageWithScript(Uint8List data, String script) async {
     var initJs = await rootBundle.loadString('assets/init.js');
     return await Isolate.run(() {
       var jsEngine = JsEngine();
-      jsEngine.runCode(initJs, '<init>');
-      jsEngine.runCode(script);
-      var key = jsEngine.setImage(image);
-      var res = jsEngine.runCode('''
+      try {
+        jsEngine.runCode(initJs, '<init>');
+        jsEngine.runCode(script);
+        var key = jsEngine.setImage(image);
+        var res = jsEngine.runCode('''
         let func = () => {
           let image = new Image($key);
           let result = modifyImage(image);
@@ -318,9 +364,14 @@ Future<Uint8List> modifyImageWithScript(Uint8List data, String script) async {
         }
         func();
       ''');
-      var newImage = jsEngine.images[res];
-      var data = newImage!.encodePng();
-      return Uint8List.fromList(data);
+        var newImage = jsEngine.images[res];
+        var data = newImage!.encodePng();
+        return Uint8List.fromList(data);
+      } finally {
+        jsEngine.images.clear();
+        jsEngine._engine?.close();
+        jsEngine._engine?.port.close();
+      }
     });
   } finally {
     _tasksCount--;

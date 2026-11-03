@@ -5,7 +5,9 @@
 [![flutter](https://img.shields.io/badge/flutter-3.41.4-blue)](https://flutter.dev/)
 
 
-A comic reader that support reading local and network comics.
+This is an unofficial fork of Venera, independently maintained by a third party.
+
+Venera Prime is a local comic reader that uses JavaScript scripts to access your personal comic collection, whether stored locally, on a NAS, or on other personal storage. Please do not use this software for illegal purposes.
 
 ## Features
 - Read local comics
@@ -15,6 +17,10 @@ A comic reader that support reading local and network comics.
 - Download comics
 - View comments, tags, and other information of comics if the source supports
 - Login to comment, rate, and other operations if the source supports
+
+## Contributing
+
+Pull requests are currently disabled. To contribute, fork this repository, make your changes, and open an [issue](https://github.com/venera-app/venera-prime/issues) with a link to your fork, branch, or commits to request a review and merge.
 
 ## Build from source
 1. Clone the repository

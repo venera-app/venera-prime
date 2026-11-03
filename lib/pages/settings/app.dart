@@ -38,16 +38,26 @@ class _AppSettingsState extends State<AppSettings> {
         ).toSliver(),
         _CallbackSetting(
           title: "Set New Storage Path".tl,
+          subtitle:
+              "Choose an empty folder. Finish or cancel queued downloads before moving."
+                  .tl,
           actionTitle: "Set".tl,
           callback: () async {
             String? result;
-            if (App.isAndroid) {
-              var picker = DirectoryPicker();
-              result = (await picker.pickDirectory())?.path;
-            } else if (App.isIOS) {
-              result = await selectDirectoryIOS();
-            } else {
-              result = await selectDirectory();
+            try {
+              if (App.isAndroid) {
+                var picker = DirectoryPicker();
+                result = (await picker.pickDirectory())?.path;
+              } else if (App.isIOS) {
+                result = await selectDirectoryIOS();
+              } else {
+                result = await selectDirectory();
+              }
+            } catch (error) {
+              if (context.mounted) {
+                context.showMessage(message: error.toString());
+              }
+              return;
             }
             if (result == null) return;
             var loadingDialog = showLoadingDialog(

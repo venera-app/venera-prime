@@ -17,6 +17,7 @@ import 'foundation/app.dart';
 import 'foundation/appdata.dart';
 import 'headless.dart';
 import 'init.dart';
+import 'pages/project_notice.dart';
 
 void main(List<String> args) {
   if (args.contains('--headless')) {
@@ -80,14 +81,46 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     WidgetsBinding.instance.addObserver(this);
     _authenticated = appdata.settings['authorizationRequired'] != true;
-    _tasksVisible.value = _authenticated && _initializationFailure == null;
-    if (_initializationFailure == null) {
-      checkUpdates();
-    }
+    _tasksVisible.value = false;
+    _scheduleStartup();
     _sourceUpdateTimer = Timer.periodic(const Duration(hours: 1), (_) {
-      if (_initializationFailure == null) checkSourceUpdates(automatic: true);
+      if (_startupCompleted && _initializationFailure == null) {
+        checkSourceUpdates(automatic: true);
+      }
     });
     super.initState();
+  }
+
+  bool _startupScheduled = false;
+  bool _startupCompleted = false;
+
+  void _scheduleStartup() {
+    if (_startupScheduled ||
+        _startupCompleted ||
+        !_authenticated ||
+        _initializationFailure != null) {
+      return;
+    }
+    _startupScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        if (!mounted) return;
+        final acknowledged = await ProjectNoticeReceipt.isAcknowledged();
+        if (!mounted || !_authenticated) return;
+        if (!acknowledged) {
+          await showProjectNotice(
+            App.rootContext,
+            acknowledgementRequired: true,
+          );
+        }
+        if (!mounted) return;
+        _startupCompleted = true;
+        _tasksVisible.value = _authenticated;
+        checkUpdates();
+      } finally {
+        _startupScheduled = false;
+      }
+    });
   }
 
   bool isAuthPageActive = false;
@@ -108,8 +141,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_initializationFailure == null && state == AppLifecycleState.resumed) {
-      checkSourceUpdates(automatic: true);
-      _tasksVisible.value = _authenticated;
+      if (_startupCompleted) checkSourceUpdates(automatic: true);
+      _tasksVisible.value = _authenticated && _startupCompleted;
     }
     if (_initializationFailure != null ||
         !App.isMobile ||
@@ -147,7 +180,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             App.rootContext.pop();
             isAuthPageActive = false;
             _authenticated = true;
-            _tasksVisible.value = true;
+            _tasksVisible.value = _startupCompleted;
+            _scheduleStartup();
           },
         ),
       );
@@ -225,8 +259,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           setState(() => _initializationFailure = failure);
           if (failure == null) {
             _authenticated = appdata.settings['authorizationRequired'] != true;
-            _tasksVisible.value = _authenticated;
-            checkUpdates();
+            _tasksVisible.value = _authenticated && _startupCompleted;
+            _scheduleStartup();
           }
         },
       );
@@ -234,8 +268,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       home = AuthPage(
         onSuccessfulAuth: () {
           _authenticated = true;
-          _tasksVisible.value = true;
+          _tasksVisible.value = _startupCompleted;
           App.rootContext.toReplacement(() => const MainPage());
+          _scheduleStartup();
         },
       );
     } else {

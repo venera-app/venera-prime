@@ -142,6 +142,11 @@ void registerReaderSpreadTests({bool device = false}) {
       expect(find.byType(CustomSlider), findsOneWidget);
       expect(tester.widget<CustomSlider>(find.byType(CustomSlider)).max, 3);
       final dynamic state = tester.state(find.byType(Reader));
+      final pageBeforeReload = state.page;
+      await tester.runAsync(() async => state.reloadVisibleImages());
+      await tester.pump();
+      expect(state.page, pageBeforeReload);
+      expect(tester.takeException(), isNull);
       Finder image(int n) => find.byKey(ValueKey('reader-spread-image-$n'));
       Future<void> settle() async {
         for (var i = 0; i < 6; i++) {
@@ -174,7 +179,12 @@ void registerReaderSpreadTests({bool device = false}) {
       expect(find.byKey(const ValueKey('reader-spread-blank')), findsOneWidget);
       expect(
         tester.getSize(image(5)).width,
-        closeTo(tester.getSize(find.byType(Reader)).width / 2, 1),
+        closeTo(
+          tester
+              .getSize(find.byKey(const ValueKey('reader-spread-blank')))
+              .width,
+          1,
+        ),
       );
 
       // Switching to single-page and back keeps the same underlying image.

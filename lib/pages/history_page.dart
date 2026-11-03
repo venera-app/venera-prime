@@ -314,12 +314,6 @@ class _HistoryPageState extends State<HistoryPage> {
                     : Text('History'.tl),
                 actions: multiSelectMode ? selectActions : normalActions,
               ),
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: TaskStatusText(taskKey: 'history-refresh:all'),
-                ),
-              ),
               SliverSearchBar(
                 controller: searchController,
                 onChanged: _search,

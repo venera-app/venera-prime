@@ -14,6 +14,44 @@ import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/chapter_navigation.dart';
 
 void main() {
+  test(
+    'mixed chapter spellings share ascending and descending numeric order',
+    () {
+      const chapters = ComicChapters({
+        'ten': '第10话',
+        'two': '2',
+        'one': '第 １ 話',
+        'three': 'Chapter 3',
+        'also-one': '第一话',
+      });
+      final indexes = List.generate(chapters.length, (i) => i);
+      expect(ChapterOrder.titleAscending.apply(indexes, chapters.titles), [
+        2,
+        4,
+        1,
+        3,
+        0,
+      ]);
+      expect(ChapterOrder.titleDescending.apply(indexes, chapters.titles), [
+        0,
+        3,
+        1,
+        2,
+        4,
+      ]);
+      expect(ChapterOrder.source.apply(indexes, chapters.titles), indexes);
+      expect(
+        ChapterOrder.reverse.apply(indexes, chapters.titles),
+        indexes.reversed.toList(),
+      );
+      expect(chapters.ids, ['ten', 'two', 'one', 'three', 'also-one']);
+      expect(ChapterOrder.titleAscending.apply([0, 3], chapters.titles), [
+        3,
+        0,
+      ]);
+    },
+  );
+
   test('source chronology stays separate from directory display order', () {
     const chapters = ComicChapters({
       'ten': 'Chapter 10',

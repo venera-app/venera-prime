@@ -27,6 +27,7 @@ class ComicImage extends StatefulWidget {
     this.onInit,
     this.onDispose,
     this.onImageReady,
+    this.onImageSize,
   }) : image = ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, image),
        assert(cacheWidth == null || cacheWidth > 0),
        assert(cacheHeight == null || cacheHeight > 0);
@@ -68,6 +69,7 @@ class ComicImage extends StatefulWidget {
   final void Function(State<ComicImage> state)? onDispose;
 
   final VoidCallback? onImageReady;
+  final ValueChanged<Size>? onImageSize;
 
   static void clear() => _ComicImageState.clear();
 
@@ -92,6 +94,33 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   static final Map<int, Size> _cache = {};
 
   static clear() => _cache.clear();
+
+  Future<void> reload() async {
+    final provider = widget.image;
+    if (provider is ReaderImageProvider &&
+        !provider.imageKey.startsWith('file://')) {
+      await CacheManager().delete(
+        '${provider.imageKey}@${provider.sourceKey}@${provider.cid}@${provider.eid}',
+      );
+    }
+    await provider.evict();
+    if (!mounted) return;
+    _loadingProgressTimer?.cancel();
+    _loadingProgressTimer = null;
+    _pendingLoadingProgress = null;
+    _stopListeningToStream();
+    _completerHandle?.dispose();
+    _completerHandle = null;
+    _imageStream = null;
+    _imageStreamListener = null;
+    setState(() {
+      _replaceImage(info: null);
+      _lastException = null;
+      _loadingProgress = null;
+    });
+    _resolveImage();
+    _listenToStream();
+  }
 
   @override
   void initState() {
@@ -214,6 +243,9 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       _wasSynchronouslyLoaded = _wasSynchronouslyLoaded | synchronousCall;
     });
     widget.onImageReady?.call();
+    widget.onImageSize?.call(
+      Size(imageInfo.image.width.toDouble(), imageInfo.image.height.toDouble()),
+    );
   }
 
   void _handleImageChunk(ImageChunkEvent event) {
