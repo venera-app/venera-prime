@@ -1,5 +1,14 @@
 {
   "zh_CN": {
+    "Add favorite folder": "添加收藏夹模块",
+    "No favorite folders": "暂无收藏夹",
+    "Home settings": "首页设置",
+    "Compact home": "紧凑首页",
+    "Reduce control height and spacing": "压缩控件高度，减少空白",
+    "Favorite folder unavailable": "收藏夹已删除或重命名，请重新添加",
+    "Waterfall reading (across chapters)": "瀑布流阅读（跨章节）",
+    "Automatically connect chapters in vertical continuous mode": "在纵向连续阅读模式下，自动衔接前后章节",
+    "No pages in this chapter": "本章暂无图片",
     "Restoration cancelled": "已取消恢复",
     "Load previous page": "加载上一页",
     "Restoring page @page (@loaded loaded)": "正在恢复第 @page 页（已加载 @loaded 页）",

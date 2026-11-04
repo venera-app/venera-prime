@@ -9,6 +9,24 @@ import 'package:venera/pages/settings/home_layout_page.dart';
 import 'package:venera/utils/translations.dart';
 
 void main() {
+  test(
+    'favorite modules and compact preference persist and can be removed',
+    () {
+      final layout = HomeLayout.fromJson(null)
+        ..addFolder('My favorites')
+        ..compact = true;
+      layout.addFolder('My favorites');
+      expect(layout.order.where((id) => id == 'folder:My favorites').length, 1);
+      final restored = HomeLayout.fromJson(layout.toJson());
+      expect(restored.compact, isTrue);
+      expect(restored.folders['folder:My favorites'], 'My favorites');
+      restored.hidden.add('folder:My favorites');
+      restored.removeFolder('folder:My favorites');
+      expect(restored.order, HomeLayout.titles.keys.toList());
+      expect(restored.hidden, isEmpty);
+    },
+  );
+
   test('defaults preserve all existing modules in order', () {
     final layout = HomeLayout.fromJson(null);
     expect(layout.order, HomeLayout.titles.keys.toList());
@@ -59,6 +77,19 @@ void main() {
       expect(HomeLayout.fromJson(appdata.settings['homeLayout']).hidden, {
         'search',
       });
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.byType(SwitchListTile));
+        await appdata.saveData(false);
+      });
+      await tester.pumpAndSettle();
+      expect(
+        HomeLayout.fromJson(appdata.settings['homeLayout']).compact,
+        isTrue,
+      );
+      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      await tester.pumpAndSettle();
       final list = tester.widget<ReorderableListView>(
         find.byType(ReorderableListView),
       );

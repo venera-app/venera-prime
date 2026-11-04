@@ -62,11 +62,18 @@ class Select extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: minWidth != null ? (minWidth! - 32) : 0,
+            Flexible(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: minWidth != null ? (minWidth! - 32) : 0,
+                ),
+                child: Text(
+                  current ?? ' ',
+                  style: ts.s14,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              child: Text(current ?? ' ', style: ts.s14),
             ),
             const SizedBox(width: 8),
             Icon(Icons.arrow_drop_down, color: context.colorScheme.primary),

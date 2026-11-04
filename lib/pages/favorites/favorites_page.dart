@@ -40,7 +40,9 @@ const _kLeftBarWidth = 256.0;
 const _kTwoPanelChangeWidth = 720.0;
 
 class FavoritesPage extends StatefulWidget {
-  const FavoritesPage({super.key});
+  const FavoritesPage({super.key, this.initialLocalFolder});
+
+  final String? initialLocalFolder;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -98,6 +100,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
     if (data != null) {
       folder = data['name'];
       isNetwork = data['isNetwork'] ?? false;
+    }
+    if (widget.initialLocalFolder != null) {
+      folder = widget.initialLocalFolder;
+      isNetwork = false;
     }
     if (folder != null
         && !isNetwork

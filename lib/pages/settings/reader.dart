@@ -492,6 +492,16 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           ),
         ),
         _SwitchSetting(
+          title: 'Waterfall reading (across chapters)'.tl,
+          subtitle:
+              'Automatically connect chapters in vertical continuous mode'.tl,
+          settingKey: 'readerWaterfall',
+          onChanged: () => widget.onChanged?.call('readerWaterfall'),
+          comicId: isEnabledSpecificSettings ? widget.comicId : null,
+          comicSource: isEnabledSpecificSettings ? widget.comicSource : null,
+          useDeviceSettings: useDeviceSpecificSettings,
+        ).toSliver(),
+        _SwitchSetting(
           title: 'Limit image width'.tl,
           subtitle: 'When using Continuous(Top to Bottom) mode'.tl,
           settingKey: 'limitImageWidth',

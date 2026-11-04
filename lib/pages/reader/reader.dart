@@ -61,6 +61,8 @@ part 'scaffold.dart';
 
 part 'images.dart';
 
+part 'waterfall.dart';
+
 part 'gesture.dart';
 
 part 'comic_image.dart';
@@ -132,11 +134,23 @@ class _ReaderState extends State<Reader>
     if (mounted) setState(() {});
   }
 
+  bool get waterfallEnabled =>
+      mode == ReaderMode.continuousTopToBottom &&
+      appdata.settings.getReaderSetting(
+            cid,
+            type.sourceKey,
+            'readerWaterfall',
+          ) ==
+          true;
+
   /// Map input to reading order before resolving page and chapter boundaries.
   @override
   bool turnPage({required bool forward}) {
     if (isLoading) return false;
     final controller = _imageViewController;
+    if (controller is _WaterfallModeState) {
+      return controller.scrollWithinPage(forward: forward);
+    }
     if (controller is _ContinuousModeState) {
       // Several short images can remain visible at the end. The first visible
       // image number alone does not identify the actual chapter boundary.
@@ -574,7 +588,13 @@ class _ReaderState extends State<Reader>
                 children: [
                   _ReaderScaffold(
                     child: _ReaderGestureDetector(
-                      child: _ReaderImages(key: Key(chapter.toString())),
+                      child: _ReaderImages(
+                        key: Key(
+                          waterfallEnabled
+                              ? 'waterfall-$_chapterSession'
+                              : chapter.toString(),
+                        ),
+                      ),
                     ),
                   ),
                   Positioned.fill(
@@ -1004,6 +1024,7 @@ abstract mixin class _ReaderLocation {
   }
 
   int chapter = 1;
+  int _chapterSession = 0;
 
   int get maxPage;
 
@@ -1114,6 +1135,7 @@ abstract mixin class _ReaderLocation {
 
   bool toChapter(int c, {bool toLastPage = false}) {
     if (_validateChapter(c) && !isLoading) {
+      _chapterSession++;
       chapter = c;
       resetImageGrouping();
       page = 1;

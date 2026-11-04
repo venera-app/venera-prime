@@ -1795,19 +1795,27 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
           }
           yield ListTile(
             title: Text((item.value['title'] as String).ts(source.key)),
-            trailing: Select(
-              current: current?.toString().ts(source.key),
-              values: (item.value['options'] as List)
-                  .map<String>(
-                    (e) => ((e['text'] ?? e['value']) as String).ts(source.key),
-                  )
-                  .toList(),
-              onTap: (i) {
-                source.data['settings'][key] =
-                    item.value['options'][i]['value'];
-                source.saveData();
-                setState(() {});
-              },
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Select(
+                  current: current?.toString().ts(source.key),
+                  values: (item.value['options'] as List)
+                      .map<String>(
+                        (e) => ((e['text'] ?? e['value']) as String).ts(
+                          source.key,
+                        ),
+                      )
+                      .toList(),
+                  onTap: (i) {
+                    source.data['settings'][key] =
+                        item.value['options'][i]['value'];
+                    source.saveData();
+                    setState(() {});
+                  },
+                ),
+              ),
             ),
           );
         } else if (type == "switch") {

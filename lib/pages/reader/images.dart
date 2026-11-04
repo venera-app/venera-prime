@@ -156,7 +156,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
           ),
         );
       } else {
-        return _ContinuousMode(key: Key(reader.mode.key));
+        return reader.waterfallEnabled
+            ? const _WaterfallMode()
+            : _ContinuousMode(key: Key(reader.mode.key));
       }
     }
   }
@@ -900,6 +902,12 @@ class _ContinuousModeState extends State<_ContinuousMode>
 
   ScrollController get scrollController => _scrollController!;
 
+  int get itemCount => reader.maxPage + 2;
+  int listIndex(int page) => page;
+  Widget? boundaryItem(int index) =>
+      index == 0 || index == reader.maxPage + 1 ? const SizedBox() : null;
+  ImageProvider imageAt(int index) => _createImageProvider(index, context);
+
   bool get isAtChapterStart =>
       _visibleImagesReady &&
       _scrollController?.hasClients == true &&
@@ -1019,7 +1027,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
     final oldMain = vertical ? previous.height : previous.width;
     final newMain = vertical ? viewport.height : viewport.width;
     if (_resizeAnchor == null) {
-      final page = reader.page;
+      final page = listIndex(reader.page);
       final position = itemPositionsListener.itemPositions.value
           .where((item) => item.index == page)
           .firstOrNull;
@@ -1268,7 +1276,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
           : imageHeight,
     );
     Widget widget = ScrollablePositionedList.builder(
-      initialScrollIndex: reader.page,
+      initialScrollIndex: listIndex(reader.page),
       itemScrollController: itemScrollController,
       itemPositionsListener: itemPositionsListener,
       scrollControllerCallback: (scrollController) {
@@ -1278,7 +1286,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
         _scrollController = scrollController;
         _scrollController!.addListener(onScroll);
       },
-      itemCount: reader.maxPage + 2,
+      itemCount: itemCount,
       addSemanticIndexes: false,
       scrollDirection: reader.mode == ReaderMode.continuousTopToBottom
           ? Axis.vertical
@@ -1290,9 +1298,8 @@ class _ContinuousModeState extends State<_ContinuousMode>
           ? const ClampingScrollPhysics()
           : const BouncingScrollPhysics(),
       itemBuilder: (context, index) {
-        if (index == 0 || index == reader.maxPage + 1) {
-          return const SizedBox();
-        }
+        final boundary = boundaryItem(index);
+        if (boundary != null) return boundary;
         double? width, height;
         if (reader.mode == ReaderMode.continuousLeftToRight ||
             reader.mode == ReaderMode.continuousRightToLeft) {
@@ -1301,7 +1308,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
           width = double.infinity;
         }
 
-        ImageProvider image = _createImageProvider(index, context);
+        ImageProvider image = imageAt(index);
 
         return ColoredBox(
           color: readerBackgroundColor(
@@ -1318,7 +1325,9 @@ class _ContinuousModeState extends State<_ContinuousMode>
                   ? null
                   : imageHeight,
               child: ComicImage(
-                key: ValueKey('reader-continuous-image-$index'),
+                key: reader.waterfallEnabled
+                    ? ValueKey(image)
+                    : ValueKey('reader-continuous-image-$index'),
                 // Bilinear filtering avoids mipmap work while large images are
                 // continuously moving. Gallery mode keeps medium quality for zoom.
                 filterQuality: FilterQuality.low,
@@ -1469,7 +1478,8 @@ class _ContinuousModeState extends State<_ContinuousMode>
 
         var scale = photoViewController.scale ?? 1.0;
 
-        if (notification is ScrollUpdateNotification &&
+        if (!reader.waterfallEnabled &&
+            notification is ScrollUpdateNotification &&
             (scale - 1).abs() < 0.05) {
           if (!scrollController.hasClients) return false;
           if (scrollController.position.pixels <=
@@ -1555,7 +1565,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
   @override
   Future<void> animateToPage(int page) {
     return itemScrollController.scrollTo(
-      index: page,
+      index: listIndex(page),
       duration: const Duration(milliseconds: 200),
       curve: Curves.ease,
     );
@@ -1617,7 +1627,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
   @override
   void toPage(int page) {
     _openingAtChapterEnd = false;
-    itemScrollController.jumpTo(index: page);
+    itemScrollController.jumpTo(index: listIndex(page));
     _futurePosition = null;
   }
 

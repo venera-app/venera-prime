@@ -26,9 +26,17 @@ import 'package:venera/utils/import_comic.dart';
 import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
+import 'favorites/favorites_page.dart';
 import 'local_comics_page.dart';
 import 'read_later_page.dart';
 import 'reading_statistics_page.dart';
+
+bool _compactHome(BuildContext context) =>
+    HomeLayout.fromJson(appdata.settings['homeLayout']).compact;
+
+// Each preview tile has two pixels of padding above and below its cover.
+double _homeCoverHeight(BuildContext context) =>
+    _compactHome(context) ? 108 : 132;
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -63,12 +71,25 @@ class HomePage extends StatelessWidget {
               visible: !layout.hidden.contains(id),
               // The sync module also observes lifecycle resume events.
               maintainState: id == 'sync',
-              sliver: modules[id]!,
+              sliver:
+                  modules[id] ??
+                  _FavoriteFolderPreview(folder: layout.folders[id]!),
             ),
         SliverPadding(padding: EdgeInsets.only(top: context.padding.bottom)),
       ],
     );
-    return context.width > changePoint ? widget.paddingHorizontal(8) : widget;
+    return Theme(
+      data: Theme.of(context).copyWith(
+        visualDensity: layout.compact
+            ? VisualDensity.compact
+            : Theme.of(context).visualDensity,
+        listTileTheme: Theme.of(context).listTileTheme.copyWith(
+          dense: layout.compact,
+          minVerticalPadding: layout.compact ? 0 : null,
+        ),
+      ),
+      child: context.width > changePoint ? widget.paddingHorizontal(8) : widget,
+    );
   }
 }
 
@@ -236,7 +257,10 @@ class _ReadLaterState extends State<_ReadLater> {
     if (comics.isEmpty) return const SliverPadding(padding: EdgeInsets.zero);
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -253,11 +277,12 @@ class _ReadLaterState extends State<_ReadLater> {
               onTap: () => context.to(() => const ReadLaterPage()),
             ),
             SizedBox(
-              height: 136,
+              height: _homeCoverHeight(context) + 4,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: comics.length,
                 itemBuilder: (context, index) => SimpleComicTile(
+                  coverHeight: _homeCoverHeight(context),
                   comic: comics[index],
                   onTap: () => context.to(
                     () => ComicPage(
@@ -316,7 +341,10 @@ class _ReadingStatisticsPreviewState extends State<_ReadingStatisticsPreview> {
 
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -424,9 +452,12 @@ class _SearchBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Container(
-        height: App.isMobile ? 52 : 46,
+        height: _compactHome(context) ? 40 : (App.isMobile ? 52 : 46),
         width: double.infinity,
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         child: Material(
           color: context.colorScheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(32),
@@ -503,7 +534,10 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
     } else if (DataSync().isUploading || DataSync().isDownloading) {
       child = SliverToBoxAdapter(
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          margin: EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: _compactHome(context) ? 3 : 8,
+          ),
           decoration: BoxDecoration(
             border: Border.all(color: Theme.of(context).colorScheme.primary),
             borderRadius: BorderRadius.circular(8),
@@ -526,7 +560,10 @@ class _SyncDataWidgetState extends State<_SyncDataWidget>
     } else {
       child = SliverToBoxAdapter(
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          margin: EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: _compactHome(context) ? 3 : 8,
+          ),
           decoration: BoxDecoration(
             border: Border.all(
               color: Theme.of(context).colorScheme.outlineVariant,
@@ -636,7 +673,10 @@ class _HistoryState extends State<_History> {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -653,7 +693,7 @@ class _HistoryState extends State<_History> {
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 56,
+                height: _compactHome(context) ? 40 : 56,
                 child: Row(
                   children: [
                     Center(child: Text('History'.tl, style: ts.s18)),
@@ -676,7 +716,7 @@ class _HistoryState extends State<_History> {
               ).paddingHorizontal(16),
               if (history.isNotEmpty)
                 SizedBox(
-                  height: 136,
+                  height: _homeCoverHeight(context) + 4,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: history.length,
@@ -685,6 +725,7 @@ class _HistoryState extends State<_History> {
                           'history:${history[index].sourceKey}:${history[index].id}'
                               .hashCode;
                       return SimpleComicTile(
+                        coverHeight: _homeCoverHeight(context),
                         comic: history[index],
                         heroID: heroID,
                         onTap: () {
@@ -748,7 +789,10 @@ class _LocalState extends State<_Local> {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -765,7 +809,7 @@ class _LocalState extends State<_Local> {
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 56,
+                height: _compactHome(context) ? 40 : 56,
                 child: Row(
                   children: [
                     Center(child: Text('Local'.tl, style: ts.s18)),
@@ -788,7 +832,7 @@ class _LocalState extends State<_Local> {
               ).paddingHorizontal(16),
               if (local.isNotEmpty)
                 SizedBox(
-                  height: 136,
+                  height: _homeCoverHeight(context) + 4,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: local.length,
@@ -797,6 +841,7 @@ class _LocalState extends State<_Local> {
                           'local:${local[index].sourceKey}:${local[index].id}'
                               .hashCode;
                       return SimpleComicTile(
+                        coverHeight: _homeCoverHeight(context),
                         comic: local[index],
                         heroID: heroID,
                         onTap: () {
@@ -1075,7 +1120,10 @@ class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -1092,7 +1140,7 @@ class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 56,
+                height: _compactHome(context) ? 40 : 56,
                 child: Row(
                   children: [
                     Center(child: Text('Comic Source'.tl, style: ts.s18)),
@@ -1281,7 +1329,10 @@ class _ImageFavoritesState extends State<ImageFavorites> {
         imageFavoritesCompute != null && !imageFavoritesCompute!.isEmpty;
     return SliverToBoxAdapter(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        margin: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: _compactHome(context) ? 3 : 8,
+        ),
         decoration: BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.outlineVariant,
@@ -1298,7 +1349,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 56,
+                height: _compactHome(context) ? 40 : 56,
                 child: Row(
                   children: [
                     Center(child: Text('Image Favorites'.tl, style: ts.s18)),
@@ -1514,4 +1565,78 @@ class __ChartLineState extends State<_ChartLine>
       ],
     ).fixHeight(28);
   }
+}
+
+class _FavoriteFolderPreview extends StatelessWidget {
+  const _FavoriteFolderPreview({required this.folder});
+  final String folder;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: LocalFavoritesManager(),
+    builder: (context, _) {
+      final manager = LocalFavoritesManager();
+      final exists = manager.folderNames.contains(folder);
+      final comics = exists
+          ? manager.getFolderComics(folder)
+          : <FavoriteItem>[];
+      return SliverToBoxAdapter(
+        child: Container(
+          margin: EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: _compactHome(context) ? 3 : 8,
+          ),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+              width: .6,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(folder),
+                trailing: exists ? const Icon(Icons.arrow_right) : null,
+                onTap: exists
+                    ? () => context.to(
+                        () => FavoritesPage(initialLocalFolder: folder),
+                      )
+                    : null,
+                subtitle: !exists
+                    ? Text('Favorite folder unavailable'.tl)
+                    : null,
+              ),
+              if (comics.isEmpty && exists)
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text('No comics'.tl),
+                ),
+              if (comics.isNotEmpty)
+                SizedBox(
+                  height: _homeCoverHeight(context) + 4,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: comics.length,
+                    itemBuilder: (context, index) => SimpleComicTile(
+                      coverHeight: _homeCoverHeight(context),
+                      comic: comics[index],
+                      onTap: () => context.to(
+                        () => ComicPage(
+                          id: comics[index].id,
+                          sourceKey: comics[index].sourceKey,
+                          cover: comics[index].cover,
+                          title: comics[index].title,
+                        ),
+                      ),
+                    ).paddingHorizontal(8).paddingVertical(2),
+                  ),
+                ).paddingBottom(_compactHome(context) ? 4 : 8),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

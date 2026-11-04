@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/home_layout.dart';
+import 'package:venera/foundation/favorites.dart';
 import 'package:venera/utils/translations.dart';
 
 class HomeLayoutPage extends StatefulWidget {
@@ -16,6 +17,65 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
     await appdata.saveData();
   }
 
+  Future<void> _addFolder() async {
+    final folders = LocalFavoritesManager().folderNames;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text('Add favorite folder'.tl),
+        children: folders.isEmpty
+            ? [
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('No favorite folders'.tl),
+                ),
+              ]
+            : folders
+                  .map(
+                    (name) => SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, name),
+                      child: Text(name),
+                    ),
+                  )
+                  .toList(),
+      ),
+    );
+    if (name == null || !mounted) return;
+    final layout = HomeLayout.fromJson(appdata.settings['homeLayout']);
+    layout.addFolder(name);
+    await _save(layout);
+  }
+
+  void _settings() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Home settings'.tl),
+        content: ListenableBuilder(
+          listenable: appdata.settings,
+          builder: (context, _) {
+            final layout = HomeLayout.fromJson(appdata.settings['homeLayout']);
+            return SwitchListTile(
+              title: Text('Compact home'.tl),
+              subtitle: Text('Reduce control height and spacing'.tl),
+              value: layout.compact,
+              onChanged: (value) {
+                layout.compact = value;
+                _save(layout);
+              },
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK'.tl),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: appdata.settings,
@@ -25,6 +85,16 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
         appBar: AppBar(
           title: Text('Customize home'.tl),
           actions: [
+            IconButton(
+              tooltip: 'Add favorite folder'.tl,
+              icon: const Icon(Icons.add),
+              onPressed: _addFolder,
+            ),
+            IconButton(
+              tooltip: 'Home settings'.tl,
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: _settings,
+            ),
             IconButton(
               tooltip: 'Restore defaults'.tl,
               icon: const Icon(Icons.restore),
@@ -56,18 +126,36 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
                     ),
                   ),
                 ),
-                title: Text(HomeLayout.titles[id]!.tl),
-                trailing: Switch(
-                  key: ValueKey('toggle-$id'),
-                  value: !layout.hidden.contains(id),
-                  onChanged: (enabled) {
-                    if (enabled) {
-                      layout.hidden.remove(id);
-                    } else {
-                      layout.hidden.add(id);
-                    }
-                    _save(layout);
-                  },
+                title: Text(
+                  layout.folders.containsKey(id)
+                      ? layout.title(id)
+                      : layout.title(id).tl,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (layout.folders.containsKey(id))
+                      IconButton(
+                        tooltip: 'Delete'.tl,
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () {
+                          layout.removeFolder(id);
+                          _save(layout);
+                        },
+                      ),
+                    Switch(
+                      key: ValueKey('toggle-$id'),
+                      value: !layout.hidden.contains(id),
+                      onChanged: (enabled) {
+                        if (enabled) {
+                          layout.hidden.remove(id);
+                        } else {
+                          layout.hidden.add(id);
+                        }
+                        _save(layout);
+                      },
+                    ),
+                  ],
                 ),
               );
             },
