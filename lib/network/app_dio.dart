@@ -432,20 +432,101 @@ class RHttpAdapter implements HttpClientAdapter {
       options.headers['User-Agent'] = "venera/v${App.version}";
     }
 
-    final client = await _getClient();
-    var res = await client.request(
-      method: rhttp.HttpMethod(options.method),
-      url: options.uri.toString(),
-      expectBody: rhttp.HttpExpectBody.stream,
-      body: requestStream == null ? null : rhttp.HttpBody.stream(requestStream),
-      headers: rhttp.HttpHeaders.rawMap(
-        Map.fromEntries(
-          options.headers.entries.map(
-            (e) => MapEntry(e.key, e.value.toString().trim()),
+    final cancelToken = rhttp.CancelToken();
+    var cancelled = false;
+    var sendTimedOut = false;
+    final cancellation = cancelFuture?.then((_) {
+      cancelled = true;
+      _cancelRequest(cancelToken);
+    });
+
+    final requestSent = Completer<void>();
+    void Function()? stopBodyStream;
+    Stream<Uint8List>? bodyStream = requestStream;
+    if (bodyStream == null) {
+      requestSent.complete();
+    } else {
+      bodyStream = bodyStream.transform(
+        StreamTransformer<Uint8List, Uint8List>.fromHandlers(
+          handleData: (data, sink) => sink.add(data),
+          handleError: (error, stackTrace, sink) {
+            if (!requestSent.isCompleted) requestSent.complete();
+            sink.addError(error, stackTrace);
+          },
+          handleDone: (sink) {
+            if (!requestSent.isCompleted) requestSent.complete();
+            sink.close();
+          },
+        ),
+      );
+    }
+    final sendTimeout = options.sendTimeout;
+    if (bodyStream != null && _hasTimeout(sendTimeout)) {
+      bodyStream = _withSendIdleTimeout(
+        bodyStream,
+        sendTimeout!,
+        options,
+        (cleanup) => stopBodyStream = cleanup,
+        () {
+          sendTimedOut = true;
+          if (!requestSent.isCompleted) requestSent.complete();
+          _cancelRequest(cancelToken);
+        },
+      );
+    }
+
+    final Future<rhttp.HttpResponse> request = () async {
+      final client = await _getClient();
+      return client.request(
+        method: rhttp.HttpMethod(options.method),
+        url: options.uri.toString(),
+        expectBody: rhttp.HttpExpectBody.stream,
+        body: bodyStream == null ? null : rhttp.HttpBody.stream(bodyStream),
+        headers: rhttp.HttpHeaders.rawMap(
+          Map.fromEntries(
+            options.headers.entries.map(
+              (e) => MapEntry(e.key, e.value.toString().trim()),
+            ),
           ),
         ),
-      ),
+        cancelToken: cancelToken,
+      );
+    }();
+    request.then<void>(
+      (_) => stopBodyStream?.call(),
+      onError: (Object _, StackTrace __) => stopBodyStream?.call(),
     );
+
+    rhttp.HttpResponse res;
+    try {
+      res = await _awaitTransportResponse(
+        request,
+        requestSent: requestSent.future,
+        options: options,
+        cancelFuture: cancellation,
+        cancelToken: cancelToken,
+      );
+    } catch (error, stackTrace) {
+      if (sendTimedOut) {
+        Error.throwWithStackTrace(
+          DioException.sendTimeout(
+            timeout: sendTimeout!,
+            requestOptions: options,
+          ),
+          stackTrace,
+        );
+      }
+      if (cancelled) {
+        Error.throwWithStackTrace(
+          DioException.requestCancelled(
+            requestOptions: options,
+            reason: 'Request cancelled',
+          ),
+          stackTrace,
+        );
+      }
+      rethrow;
+    }
     if (res is! rhttp.HttpStreamResponse) {
       throw Exception("Invalid response type: ${res.runtimeType}");
     }
@@ -455,13 +536,242 @@ class RHttpAdapter implements HttpClientAdapter {
       headers[key] ??= [];
       headers[key]!.add(entry.$2);
     }
+    final receiveTimeout = options.receiveTimeout;
+    final responseStream = _hasTimeout(receiveTimeout)
+        ? _withReceiveIdleTimeout(
+            res.body,
+            receiveTimeout!,
+            options,
+            cancelToken,
+          )
+        : res.body;
     return ResponseBody(
-      res.body,
+      responseStream,
       res.statusCode,
       statusMessage: _getStatusMessage(res.statusCode),
       isRedirect: false,
       headers: headers,
     );
+  }
+
+  static bool _hasTimeout(Duration? timeout) =>
+      timeout != null && timeout > Duration.zero;
+
+  static void _cancelRequest(rhttp.CancelToken token) {
+    // The caller already receives the timeout/cancellation error. Native
+    // teardown must not produce a second, unhandled asynchronous exception.
+    unawaited(token.cancel().catchError((Object _) {}));
+  }
+
+  static void _cancelStream(StreamSubscription<Uint8List>? subscription) {
+    final cancellation = subscription?.cancel();
+    if (cancellation != null) {
+      unawaited(cancellation.catchError((Object _) {}));
+    }
+  }
+
+  static Stream<Uint8List> _withReceiveIdleTimeout(
+    Stream<Uint8List> source,
+    Duration timeout,
+    RequestOptions options,
+    rhttp.CancelToken cancelToken,
+  ) => Stream<Uint8List>.multi((controller) {
+    Timer? idleTimer;
+    StreamSubscription<Uint8List>? subscription;
+    var finished = false;
+    var outputClosed = false;
+    var paused = false;
+
+    void closeOutput() {
+      if (outputClosed) return;
+      outputClosed = true;
+      controller.close();
+    }
+
+    void cancelResponseRequest() {
+      if (finished) return;
+      finished = true;
+      idleTimer?.cancel();
+      _cancelRequest(cancelToken);
+      if (paused) {
+        paused = false;
+        subscription?.resume();
+      }
+    }
+
+    void armTimer() {
+      idleTimer?.cancel();
+      idleTimer = Timer(timeout, () {
+        if (finished) return;
+        finished = true;
+        controller.addError(
+          DioException.receiveTimeout(
+            timeout: timeout,
+            requestOptions: options,
+          ),
+        );
+        closeOutput();
+        _cancelRequest(cancelToken);
+        if (paused) {
+          paused = false;
+          subscription?.resume();
+        }
+      });
+    }
+
+    controller.onPause = () {
+      paused = true;
+      idleTimer?.cancel();
+      subscription?.pause();
+    };
+    controller.onResume = () {
+      paused = false;
+      subscription?.resume();
+      if (!finished) armTimer();
+    };
+    // Keep consuming the native stream after cancellation so its terminal
+    // cancellation event is observed by this listener instead of escaping the
+    // Rust bridge as an unhandled stream error.
+    controller.onCancel = cancelResponseRequest;
+    armTimer();
+    subscription = source.listen(
+      (chunk) {
+        if (finished) return;
+        armTimer();
+        controller.add(chunk);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (finished) return;
+        finished = true;
+        idleTimer?.cancel();
+        controller.addError(error, stackTrace);
+        closeOutput();
+      },
+      onDone: () {
+        if (finished) return;
+        finished = true;
+        idleTimer?.cancel();
+        closeOutput();
+      },
+      cancelOnError: false,
+    );
+  });
+
+  static Stream<Uint8List> _withSendIdleTimeout(
+    Stream<Uint8List> source,
+    Duration timeout,
+    RequestOptions options,
+    void Function(void Function()) onCleanupReady,
+    void Function() onTimeout,
+  ) => Stream<Uint8List>.multi((controller) {
+    Timer? idleTimer;
+    StreamSubscription<Uint8List>? subscription;
+    var finished = false;
+    var outputClosed = false;
+    var cleaned = false;
+
+    void closeOutput() {
+      if (outputClosed) return;
+      outputClosed = true;
+      controller.close();
+    }
+
+    void cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      finished = true;
+      idleTimer?.cancel();
+      _cancelStream(subscription);
+      closeOutput();
+    }
+
+    void armTimer() {
+      idleTimer?.cancel();
+      idleTimer = Timer(timeout, () {
+        if (finished) return;
+        onTimeout();
+        controller.addError(
+          DioException.sendTimeout(timeout: timeout, requestOptions: options),
+        );
+        closeOutput();
+        cleanup();
+      });
+    }
+
+    controller.onPause = () => subscription?.pause();
+    controller.onResume = () => subscription?.resume();
+    controller.onCancel = cleanup;
+    onCleanupReady(cleanup);
+    armTimer();
+    subscription = source.listen(
+      (chunk) {
+        if (finished) return;
+        armTimer();
+        controller.add(chunk);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (finished) return;
+        finished = true;
+        idleTimer?.cancel();
+        controller.addError(error, stackTrace);
+        closeOutput();
+        cleanup();
+      },
+      onDone: () {
+        if (finished) return;
+        closeOutput();
+        cleanup();
+      },
+      cancelOnError: false,
+    );
+  });
+
+  static Future<T> _awaitTransportResponse<T>(
+    Future<T> request, {
+    required Future<void> requestSent,
+    required RequestOptions options,
+    required Future<void>? cancelFuture,
+    required rhttp.CancelToken cancelToken,
+  }) async {
+    final receiveTimeout = options.receiveTimeout;
+    final result = Completer<T>();
+    Timer? receiveTimer;
+    request.then(
+      (response) {
+        if (!result.isCompleted) result.complete(response);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!result.isCompleted) result.completeError(error, stackTrace);
+      },
+    );
+    cancelFuture?.then((_) {
+      if (result.isCompleted) return;
+      _cancelRequest(cancelToken);
+      result.completeError(
+        DioException.requestCancelled(
+          requestOptions: options,
+          reason: 'Request cancelled',
+        ),
+      );
+    });
+    requestSent.then((_) {
+      if (result.isCompleted || !_hasTimeout(receiveTimeout)) return;
+      receiveTimer = Timer(receiveTimeout!, () {
+        if (result.isCompleted) return;
+        _cancelRequest(cancelToken);
+        result.completeError(
+          DioException.receiveTimeout(
+            timeout: receiveTimeout,
+            requestOptions: options,
+          ),
+        );
+      });
+    });
+    try {
+      return await result.future;
+    } finally {
+      receiveTimer?.cancel();
+    }
   }
 
   static String _getStatusMessage(int statusCode) {

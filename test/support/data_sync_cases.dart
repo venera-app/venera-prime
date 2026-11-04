@@ -12,6 +12,7 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/background_tasks.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/js_engine.dart';
+import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/read_later.dart';
@@ -497,6 +498,174 @@ void registerDataSyncTransportTests({bool device = false}) {
           expect(appdata.searchHistory, ['device-c']);
           expect(appdata.settings['webdav'][1], 'fixture-other-user');
           expect(sync.uploadQueued, isFalse);
+
+          // A higher revision must win even when its device clock moved back.
+          remote.clear();
+          final futureName = '${day + 1}-3689.venera';
+          final newerName = '${day - 1}-3690.venera';
+          remote[futureName] = deviceBBytes;
+          remote[newerName] = deviceCBytes;
+          appdata.implicitData['webdavLastBackup'] = {
+            ...appdata.implicitData['webdavLastBackup'] as Map,
+            'name': futureName,
+            'identity': 'already-seen-future-file',
+          };
+          operations.clear();
+          expect((await sync.downloadData()).success, isTrue);
+          expect(operations, contains('GET $newerName'));
+          expect(appdata.searchHistory, ['device-c']);
+          expect(sync.uploadQueued, isFalse);
+        });
+        // Exercise feature operations, not direct uploadData calls. Every
+        // mutation must upload when enabled, and remain local when disabled.
+        await tester.runAsync(() async {
+          const comic = Comic(
+            'Sync item',
+            '',
+            'sync-item',
+            '',
+            [],
+            '',
+            'local',
+            null,
+            null,
+          );
+          final later = ReadLaterComic(
+            id: comic.id,
+            title: comic.title,
+            subtitle: '',
+            tags: [],
+            cover: '',
+            description: '',
+            sourceKey: 'local',
+            type: ComicType.local,
+          );
+          void seedHistory() => HistoryManager().addHistory(
+            History.fromMap({
+              'id': comic.id,
+              'title': comic.title,
+              'subtitle': '',
+              'cover': '',
+              'type': 0,
+              'time': DateTime.now().millisecondsSinceEpoch,
+              'ep': 1,
+              'page': 1,
+            }),
+          );
+          void seedStatistics() => ReadingStatisticsManager().recordSession(
+            comic: comic,
+            startedAt: DateTime.now().subtract(const Duration(seconds: 5)),
+            endedAt: DateTime.now(),
+          );
+          final image = ImageFavorite(
+            1,
+            'fixture-image',
+            false,
+            '1',
+            comic.id,
+            1,
+            'local',
+            'Chapter',
+          );
+          ImageFavoritesComic imageComic() => ImageFavoritesComic(
+            comic.id,
+            [
+              ImageFavoritesEp('1', 1, [image], 'Chapter', 1),
+            ],
+            comic.title,
+            'local',
+            [],
+            [],
+            DateTime.now(),
+            '',
+            {},
+            '',
+            1,
+          );
+          final actions = <String, void Function()>{
+            'read later add': () => ReadLaterManager().add(comic),
+            'read later remove': () =>
+                ReadLaterManager().remove(comic.id, ComicType.local),
+            'read later restore': () => ReadLaterManager().restore([later]),
+            'read later batch remove': () =>
+                ReadLaterManager().removeMany([later]),
+            'read later clear': () {
+              final autoSync = appdata.implicitData['webdavAutoSync'];
+              appdata.implicitData['webdavAutoSync'] = false;
+              ReadLaterManager().add(comic);
+              appdata.implicitData['webdavAutoSync'] = autoSync;
+              ReadLaterManager().clear();
+            },
+            'history remove': () {
+              seedHistory();
+              HistoryManager().remove(comic.id, ComicType.local);
+            },
+            'history clear': () {
+              seedHistory();
+              HistoryManager().clearHistory();
+            },
+            'history unfavorited': () {
+              seedHistory();
+              HistoryManager().clearUnfavoritedHistory();
+            },
+            'history batch remove': () {
+              seedHistory();
+              HistoryManager().batchDeleteHistories([
+                ComicID(ComicType.local, comic.id),
+              ]);
+            },
+            'statistics remove': () {
+              seedStatistics();
+              ReadingStatisticsManager().deleteComic(comic.id, ComicType.local);
+            },
+            'statistics clear': () {
+              seedStatistics();
+              ReadingStatisticsManager().clear();
+            },
+            'image favorite add': () =>
+                ImageFavoriteManager().addOrUpdateOrDelete(imageComic()),
+            'image favorite remove': () =>
+                ImageFavoriteManager().deleteImageFavorite([image]),
+          };
+          for (final enabled in [true, false]) {
+            appdata.implicitData['webdavAutoSync'] = enabled;
+            for (final action in actions.entries) {
+              operations.clear();
+              action.value();
+              if (enabled) {
+                expect(
+                  sync.isUploading || sync.uploadQueued,
+                  isTrue,
+                  reason: action.key,
+                );
+                final deadline = DateTime.now().add(
+                  const Duration(seconds: 15),
+                );
+                while ((sync.isUploading || sync.uploadQueued) &&
+                    DateTime.now().isBefore(deadline)) {
+                  await Future<void>.delayed(const Duration(milliseconds: 10));
+                }
+                expect(
+                  sync.isUploading || sync.uploadQueued,
+                  isFalse,
+                  reason: action.key,
+                );
+                expect(sync.lastError, isNull, reason: action.key);
+                expect(
+                  operations.where((op) => op.startsWith('PUT ')),
+                  isNotEmpty,
+                  reason: action.key,
+                );
+              } else {
+                expect(
+                  sync.isUploading || sync.uploadQueued,
+                  isFalse,
+                  reason: action.key,
+                );
+                expect(operations, isEmpty, reason: action.key);
+              }
+            }
+          }
         });
         operations.clear();
         appdata.implicitData['webdavAutoSync'] = false;

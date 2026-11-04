@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:venera/components/components.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/home_layout.dart';
 import 'package:venera/foundation/favorites.dart';
@@ -19,25 +20,27 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
 
   Future<void> _addFolder() async {
     final folders = LocalFavoritesManager().folderNames;
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text('Add favorite folder'.tl),
-        children: folders.isEmpty
-            ? [
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('No favorite folders'.tl),
-                ),
-              ]
-            : folders
-                  .map(
-                    (name) => SimpleDialogOption(
-                      onPressed: () => Navigator.pop(context, name),
-                      child: Text(name),
-                    ),
-                  )
-                  .toList(),
+    final name = await showPopUpWidget<String?>(
+      context,
+      PopUpWidgetScaffold(
+        title: 'Add favorite folder'.tl,
+        body: folders.isEmpty
+            ? Center(child: Text('No favorite folders'.tl))
+            : ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: folders.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final name = folders[index];
+                  return ListTile(
+                    leading: const Icon(Icons.folder_outlined),
+                    title: Text(name),
+                    trailing: const Icon(Icons.add),
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).pop(name),
+                  );
+                },
+              ),
       ),
     );
     if (name == null || !mounted) return;
@@ -49,8 +52,8 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
   void _settings() {
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Home settings'.tl),
+      builder: (context) => ContentDialog(
+        title: 'Home settings'.tl,
         content: ListenableBuilder(
           listenable: appdata.settings,
           builder: (context, _) {
@@ -82,7 +85,7 @@ class _HomeLayoutPageState extends State<HomeLayoutPage> {
     builder: (context, _) {
       final layout = HomeLayout.fromJson(appdata.settings['homeLayout']);
       return Scaffold(
-        appBar: AppBar(
+        appBar: Appbar(
           title: Text('Customize home'.tl),
           actions: [
             IconButton(

@@ -308,6 +308,7 @@ class ImageFavoriteManager with ChangeNotifier {
     }
     if (notify) {
       notifyListeners();
+      DataSync.instance?.onDataChanged();
     }
   }
 
@@ -378,6 +379,7 @@ class ImageFavoriteManager with ChangeNotifier {
       addOrUpdateOrDelete(i, false);
     }
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   int get length {

@@ -7,6 +7,7 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
 
 String formatReadingDuration(int seconds) {
@@ -134,9 +135,7 @@ class ReadingStatisticsManager with ChangeNotifier {
     required DateTime startedAt,
     required DateTime endedAt,
   }) {
-    if (!isInitialized ||
-        !isRecordingEnabled ||
-        !endedAt.isAfter(startedAt)) {
+    if (!isInitialized || !isRecordingEnabled || !endedAt.isAfter(startedAt)) {
       return;
     }
     final type = _typeForComic(comic);
@@ -227,12 +226,14 @@ class ReadingStatisticsManager with ChangeNotifier {
       [comicId, comicType.value],
     );
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   void clear() {
     if (!isInitialized) return;
     _db.execute('DELETE FROM reading_statistics;');
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   void close() {

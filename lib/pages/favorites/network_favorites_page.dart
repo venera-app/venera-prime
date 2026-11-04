@@ -99,16 +99,7 @@ class _NormalFavoritePageState extends State<_NormalFavoritePage> {
       leadingSliver: SliverAppbar(
         style:
             context.width < changePoint ? AppbarStyle.shadow : AppbarStyle.blur,
-        leading: Tooltip(
-          message: "Folders".tl,
-          child: context.width <= _kTwoPanelChangeWidth
-              ? IconButton(
-                  icon: const Icon(Icons.menu),
-                  color: context.colorScheme.primary,
-                  onPressed: showFolders,
-                )
-              : null,
-        ),
+        leading: favoritesPage.buildLeading(context),
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: favoritesPage.folderTitleTapAction(context),
@@ -138,18 +129,7 @@ class _NormalFavoritePageState extends State<_NormalFavoritePage> {
         ],
       ),
       errorLeading: Appbar(
-        leading: Tooltip(
-          message: "Folders".tl,
-          child: context.width <= _kTwoPanelChangeWidth
-              ? IconButton(
-                  icon: const Icon(Icons.menu),
-                  color: context.colorScheme.primary,
-                  onPressed: context
-                      .findAncestorStateOfType<_FavoritesPageState>()!
-                      .showFolderSelector,
-                )
-              : null,
-        ),
+        leading: favoritesPage.buildLeading(context),
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: favoritesPage.folderTitleTapAction(context),
@@ -234,16 +214,7 @@ class _MultiFolderFavoritesPageState extends State<_MultiFolderFavoritesPage> {
     var sliverAppBar = SliverAppbar(
       style:
           context.width < changePoint ? AppbarStyle.shadow : AppbarStyle.blur,
-      leading: Tooltip(
-        message: "Folders".tl,
-        child: context.width <= _kTwoPanelChangeWidth
-            ? IconButton(
-                icon: const Icon(Icons.menu),
-                color: context.colorScheme.primary,
-                onPressed: showFolders,
-              )
-            : null,
-      ),
+      leading: favoritesPage.buildLeading(context),
       title: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: favoritesPage.folderTitleTapAction(context),
@@ -252,16 +223,7 @@ class _MultiFolderFavoritesPageState extends State<_MultiFolderFavoritesPage> {
     );
 
     var appBar = Appbar(
-      leading: Tooltip(
-        message: "Folders".tl,
-        child: context.width <= _kTwoPanelChangeWidth
-            ? IconButton(
-                icon: const Icon(Icons.menu),
-                color: context.colorScheme.primary,
-                onPressed: showFolders,
-              )
-            : null,
-      ),
+      leading: favoritesPage.buildLeading(context),
       title: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: favoritesPage.folderTitleTapAction(context),

@@ -57,6 +57,27 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   FolderList? folderList;
 
+  // Home shortcuts are pushed routes, not the persistent Favorites tab.
+  bool get isFolderShortcut => widget.initialLocalFolder != null;
+
+  Widget buildLeading(BuildContext context) {
+    if (isFolderShortcut) {
+      return IconButton(
+        tooltip: 'Back'.tl,
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.maybePop(context),
+      );
+    }
+    return context.width <= _kTwoPanelChangeWidth
+        ? IconButton(
+            tooltip: 'Folders'.tl,
+            icon: const Icon(Icons.menu),
+            color: context.colorScheme.primary,
+            onPressed: showFolderSelector,
+          )
+        : const SizedBox();
+  }
+
   void setFolder(bool isNetwork, String? folder) {
     setState(() {
       this.isNetwork = isNetwork;
@@ -136,7 +157,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         ],
       ),
     );
-    final handlesNetworkBack = folder != null && isNetwork;
+    final handlesNetworkBack = !isFolderShortcut && folder != null && isNetwork;
     return PopScope(
       canPop: !handlesNetworkBack,
       onPopInvokedWithResult: (didPop, result) {

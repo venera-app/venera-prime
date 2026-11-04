@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/utils/data_sync.dart';
 
 void main() {
-  test('orders backup days and versions numerically across digit changes', () {
+  test('orders backup revisions before device dates across digit changes', () {
     final names = [
       '20000-9.venera',
       '20000-10.venera',
@@ -12,13 +12,30 @@ void main() {
       '20000-9999.venera',
     ]..sort(compareBackupNames);
     expect(names, [
-      '9999-99999.venera',
       '20000-9.venera',
       '20000-10.venera',
       '20000-3687.venera',
       '20000-9999.venera',
       '20000-10000.venera',
+      '9999-99999.venera',
     ]);
+  });
+
+  test('clock rollback cannot hide or prune a newer revision', () {
+    expect(
+      compareBackupNames('20000-11.venera', '20001-10.venera'),
+      greaterThan(0),
+    );
+    expect(nextBackupVersion(8, ['20001-10.venera']), 11);
+    final prune = backupFilesToPrune(
+      existingNames: [
+        '20001-10.venera',
+        for (var i = 11; i <= 19; i++) '20000-$i.venera',
+      ],
+      dayPrefix: '19999-',
+      uploadedFilename: '19999-20.venera',
+    );
+    expect(prune, ['20001-10.venera']);
   });
 
   test('a device importing version 3687 advances past other devices', () {

@@ -12,6 +12,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/image_provider/image_favorites_provider.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/channel.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/translations.dart';
@@ -363,6 +364,7 @@ class HistoryManager with ChangeNotifier {
     _db.execute("delete from history;");
     updateCache();
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   void clearUnfavoritedHistory() {
@@ -391,6 +393,7 @@ class HistoryManager with ChangeNotifier {
     }
     updateCache();
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   void remove(String id, ComicType type) async {
@@ -403,6 +406,7 @@ class HistoryManager with ChangeNotifier {
     );
     updateCache();
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   void updateCache() {
@@ -504,6 +508,7 @@ class HistoryManager with ChangeNotifier {
     }
     updateCache();
     notifyListeners();
+    DataSync.instance?.onDataChanged();
   }
 
   /// Refresh history info from comic source.

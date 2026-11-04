@@ -84,14 +84,7 @@ class _FavoritesOverviewState extends State<_FavoritesOverview> {
           style: context.width < changePoint
               ? AppbarStyle.shadow
               : AppbarStyle.blur,
-          leading: context.width <= _kTwoPanelChangeWidth
-              ? IconButton(
-                  tooltip: "Folders".tl,
-                  icon: const Icon(Icons.menu),
-                  color: context.colorScheme.primary,
-                  onPressed: widget.onShowFolders,
-                )
-              : const SizedBox(),
+          leading: favoritesPage.buildLeading(context),
           title: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: context.width <= _kTwoPanelChangeWidth

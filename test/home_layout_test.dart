@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/components/components.dart';
+import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/home_layout.dart';
 import 'package:venera/pages/settings/home_layout_page.dart';
@@ -61,12 +64,20 @@ void main() {
     final root = (await tester.runAsync(
       () => Directory.systemTemp.createTemp('prime-home-layout-'),
     ))!;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (_) async => root.path,
+    );
     App.dataPath = root.path;
     appdata.settings['webdav'] = [];
     appdata.settings['homeLayout'] = <String, dynamic>{};
     tester.view.resetPhysicalSize();
     tester.view.physicalSize = const Size(320, 900);
     tester.view.devicePixelRatio = 1;
+    final favorites = LocalFavoritesManager();
+    favorites.close();
+    await tester.runAsync(() => favorites.init());
+    favorites.createFolder('Home shortcut');
     try {
       await tester.pumpWidget(const MaterialApp(home: HomeLayoutPage()));
       await tester.runAsync(() async {
@@ -88,7 +99,7 @@ void main() {
         HomeLayout.fromJson(appdata.settings['homeLayout']).compact,
         isTrue,
       );
-      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      Navigator.of(tester.element(find.byType(ContentDialog))).pop();
       await tester.pumpAndSettle();
       final list = tester.widget<ReorderableListView>(
         find.byType(ReorderableListView),
@@ -119,9 +130,30 @@ void main() {
         HomeLayout.fromJson(appdata.settings['homeLayout']).order,
         HomeLayout.titles.keys.toList(),
       );
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      expect(find.byType(PopUpWidgetScaffold), findsOneWidget);
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Home shortcut'));
+      });
+      await tester.pumpAndSettle();
+      expect(
+        HomeLayout.fromJson(appdata.settings['homeLayout']).folders.values,
+        contains('Home shortcut'),
+      );
+      expect(find.byType(PopUpWidgetScaffold), findsNothing);
+      // The popup completes after its closing transition; flush the resulting
+      // asynchronous settings write before starting another save.
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox());
+      favorites.close();
       appdata.restoreMemorySnapshot(snapshot);
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();

@@ -364,7 +364,9 @@ class Appdata with Init {
           .take(50)
           .toList();
     }
-    _restoreSearchRecords(data['searchRecords']);
+    if (data.containsKey('searchRecords')) {
+      _restoreSearchRecords(data['searchRecords']);
+    }
     if (persist) {
       saveData();
     }

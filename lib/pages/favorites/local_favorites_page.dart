@@ -300,16 +300,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
             style: context.width < changePoint
                 ? AppbarStyle.shadow
                 : AppbarStyle.blur,
-            leading: Tooltip(
-              message: "Folders".tl,
-              child: context.width <= _kTwoPanelChangeWidth
-                  ? IconButton(
-                      icon: const Icon(Icons.menu),
-                      color: context.colorScheme.primary,
-                      onPressed: favPage.showFolderSelector,
-                    )
-                  : const SizedBox(),
-            ),
+            leading: favPage.buildLeading(context),
             title: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: favPage.folderTitleTapAction(context),
@@ -801,7 +792,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
       ),
     );
     return PopScope(
-      canPop: false,
+      canPop: favPage.isFolderShortcut && !multiSelectMode && !searchMode,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) {
           return;

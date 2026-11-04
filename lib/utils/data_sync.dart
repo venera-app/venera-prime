@@ -35,7 +35,8 @@ int compareBackupNames(String a, String b) {
     if (right != null) return -1;
     return a.compareTo(b);
   }
-  for (final group in [1, 2]) {
+  // Revisions advance past the remote maximum; device clocks can move back.
+  for (final group in [2, 1]) {
     final result = BigInt.parse(
       left[group]!,
     ).compareTo(BigInt.parse(right[group]!));
@@ -282,12 +283,11 @@ class DataSync with ChangeNotifier {
       String user = config[1];
       String pass = config[2];
 
-      var client = newClient(
-        url,
-        user: user,
-        password: pass,
-        adapter: RHttpAdapter(),
-      );
+      var client =
+          newClient(url, user: user, password: pass, adapter: RHttpAdapter())
+            ..setConnectTimeout(15000)
+            ..setSendTimeout(60000)
+            ..setReceiveTimeout(60000);
 
       File? backupFile;
       final previousVersion = appdata.settings['dataVersion'] as int;
@@ -398,12 +398,11 @@ class DataSync with ChangeNotifier {
       String user = config[1];
       String pass = config[2];
 
-      var client = newClient(
-        url,
-        user: user,
-        password: pass,
-        adapter: RHttpAdapter(),
-      );
+      var client =
+          newClient(url, user: user, password: pass, adapter: RHttpAdapter())
+            ..setConnectTimeout(15000)
+            ..setSendTimeout(60000)
+            ..setReceiveTimeout(60000);
 
       Directory? downloadDirectory;
       try {

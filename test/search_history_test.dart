@@ -127,4 +127,29 @@ void main() {
       await temp.delete(recursive: true);
     },
   );
+  test('sync preserves search records omitted by older snapshots', () {
+    final snapshot =
+        jsonDecode(jsonEncode(appdata.toJson())) as Map<String, dynamic>;
+    try {
+      final entry = SearchHistoryEntry(
+        keyword: 'comic',
+        sourceKey: 'pica',
+        options: ['new'],
+        page: 4,
+      );
+      appdata.searchRecords = [entry];
+
+      appdata.syncData({'settings': <String, dynamic>{}}, persist: false);
+      expect(appdata.searchRecords.single.identity, entry.identity);
+      expect(appdata.searchRecords.single.page, 4);
+
+      appdata.syncData({
+        'settings': <String, dynamic>{},
+        'searchRecords': <dynamic>[],
+      }, persist: false);
+      expect(appdata.searchRecords, isEmpty);
+    } finally {
+      appdata.restoreMemorySnapshot(snapshot);
+    }
+  });
 }
