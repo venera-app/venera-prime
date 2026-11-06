@@ -36,8 +36,8 @@ class Appdata with Init {
     if (searchRecords.length > 50) searchRecords.removeLast();
     searchHistory.remove(entry.keyword);
     searchHistory.insert(0, entry.keyword);
-    final retained = searchHistoryEntries.map((e) => e.keyword).toSet();
-    searchHistory.removeWhere((word) => !retained.contains(word));
+    // Keep the keyword history independently of source/options variants.
+    if (searchHistory.length > 50) searchHistory.removeLast();
     _searchProgressDirty = true;
     unawaited(saveData(false));
   }

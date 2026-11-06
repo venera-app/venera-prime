@@ -123,6 +123,23 @@ void main() {
       expect(appdata.searchRecords.single.page, 2);
       appdata.restoreMemorySnapshot({...saved, 'searchRecords': null});
       expect(appdata.searchHistoryEntries.every((e) => e.isLegacy), isTrue);
+      // Many source/filter variants must not evict unrelated keyword history.
+      for (var i = 0; i < 50; i++) {
+        appdata.rememberSearch(
+          SearchHistoryEntry(
+            keyword: 'comic',
+            sourceKey: 'pica',
+            options: ['$i'],
+          ),
+        );
+      }
+      await appdata.flushSearchProgress();
+      final bothHistories = jsonDecode(
+        await File('${temp.path}/appdata.json').readAsString(),
+      );
+      appdata.restoreMemorySnapshot(bothHistories);
+      expect(appdata.searchRecords, hasLength(50));
+      expect(appdata.searchHistory, ['comic', 'legacy']);
       appdata.restoreMemorySnapshot(snapshot);
       await temp.delete(recursive: true);
     },

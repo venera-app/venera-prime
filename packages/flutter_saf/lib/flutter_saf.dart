@@ -449,8 +449,10 @@ class AndroidDirectory extends _Document implements Directory {
     _AndroidNativeAllocator.instance.free(dirContent.ref.folders);
     if (f1.isNotEmpty) {
       var dirs = f1.split('|');
-      var f1h = dirContent.ref.folderDescriptors.asTypedList(dirs.length,
-          finalizer: _AndroidNativeAllocator.instance.nativeFree);
+      // Own the descriptor values before recursive calls or async yields.
+      final f1h = dirContent.ref.folderDescriptors
+          .asTypedList(dirs.length).toList(growable: false);
+      _AndroidNativeAllocator.instance.free(dirContent.ref.folderDescriptors);
       for (var i = 0; i < dirs.length; i++) {
         var d = AndroidDirectory._("$_myPath/${dirs[i]}", f1h[i]);
         yield d;
@@ -464,8 +466,10 @@ class AndroidDirectory extends _Document implements Directory {
     _AndroidNativeAllocator.instance.free(dirContent.ref.files);
     if (f2.isNotEmpty) {
       var files = f2.split('|');
-      var f2h = dirContent.ref.fileDescriptors.asTypedList(files.length,
-          finalizer: _AndroidNativeAllocator.instance.nativeFree);
+      // Own the descriptor values before recursive calls or async yields.
+      final f2h = dirContent.ref.fileDescriptors
+          .asTypedList(files.length).toList(growable: false);
+      _AndroidNativeAllocator.instance.free(dirContent.ref.fileDescriptors);
       for (var i = 0; i < files.length; i++) {
         yield AndroidFile._("$_myPath/${files[i]}", f2h[i]);
       }
@@ -485,8 +489,10 @@ class AndroidDirectory extends _Document implements Directory {
     _AndroidNativeAllocator.instance.free(contents.ref.folders);
     if (f1.isNotEmpty) {
       var dirs = f1.split('|');
-      var f1h = contents.ref.folderDescriptors.asTypedList(dirs.length,
-          finalizer: _AndroidNativeAllocator.instance.nativeFree);
+      // Own the descriptor values before recursive calls or async yields.
+      final f1h = contents.ref.folderDescriptors
+          .asTypedList(dirs.length).toList(growable: false);
+      _AndroidNativeAllocator.instance.free(contents.ref.folderDescriptors);
       for (var i = 0; i < dirs.length; i++) {
         var d = AndroidDirectory._("$_myPath/${dirs[i]}", f1h[i]);
         result.add(d);
@@ -501,8 +507,10 @@ class AndroidDirectory extends _Document implements Directory {
     _AndroidNativeAllocator.instance.free(contents.ref.files);
     if (f2.isNotEmpty) {
       var files = f2.split('|');
-      var f2h = contents.ref.fileDescriptors.asTypedList(files.length,
-          finalizer: _AndroidNativeAllocator.instance.nativeFree);
+      // Own the descriptor values before recursive calls or async yields.
+      final f2h = contents.ref.fileDescriptors
+          .asTypedList(files.length).toList(growable: false);
+      _AndroidNativeAllocator.instance.free(contents.ref.fileDescriptors);
       for (var i = 0; i < files.length; i++) {
         result.add(AndroidFile._("$_myPath/${files[i]}", f2h[i]));
       }

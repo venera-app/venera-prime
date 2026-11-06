@@ -103,8 +103,8 @@ extension DirectoryExtension on Directory {
     if (!existsSync()) return 0;
     int total = 0;
     for (var f in listSync(recursive: true)) {
-      if (FileSystemEntity.typeSync(f.path) == FileSystemEntityType.file) {
-        total += await File(f.path).length();
+      if (f is File) {
+        total += await f.length();
       }
     }
     return total;

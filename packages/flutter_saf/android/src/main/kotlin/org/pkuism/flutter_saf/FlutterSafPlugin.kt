@@ -425,7 +425,7 @@ class SAFPathWrapper(private val myContext: Context) {
             dirList.append("$name|")
             dirDescriptors.add(
               setDocumentUri(
-                DocumentsContract.buildChildDocumentsUriUsingTree(
+                DocumentsContract.buildDocumentUriUsingTree(
                   root,
                   docId
                 )
@@ -435,7 +435,7 @@ class SAFPathWrapper(private val myContext: Context) {
             fileList.append("$name|")
             fileDescriptors.add(
               setDocumentUri(
-                DocumentsContract.buildChildDocumentsUriUsingTree(
+                DocumentsContract.buildDocumentUriUsingTree(
                   root,
                   docId
                 )

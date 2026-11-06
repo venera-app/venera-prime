@@ -1,5 +1,7 @@
 {
   "zh_CN": {
+    "Switch to detailed search history": "切换到新版记录（恢复来源、筛选和页码）",
+    "Switch to keyword search history": "切换到旧版记录（仅关键词）",
     "Add favorite folder": "添加收藏夹模块",
     "No favorite folders": "暂无收藏夹",
     "Home settings": "首页设置",
@@ -738,6 +740,8 @@
     "Read a comic or swipe left to mark its latest chapters as read. Following stays enabled.": "阅读漫画或左滑可标记已看完最新章节，仍保留追更。"
   },
   "zh_TW": {
+    "Switch to detailed search history": "切換到新版紀錄（恢復來源、篩選和頁碼）",
+    "Switch to keyword search history": "切換到舊版紀錄（僅關鍵字）",
     "Restoration cancelled": "已取消恢復",
     "Load previous page": "載入上一頁",
     "Restoring page @page (@loaded loaded)": "正在恢復第 @page 頁（已載入 @loaded 頁）",

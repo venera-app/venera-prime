@@ -164,12 +164,26 @@ void registerReaderSpreadTests({bool device = false}) {
         await settle();
       }
 
+      // Volume presses arriving during an animation must advance from its target.
+      state.onDown();
+      state.onDown();
+      await settle();
+      expect(state.page, 3);
+      state.onUp();
+      state.onUp();
+      await settle();
+      expect(state.page, 1);
+
       expect(state.imagesPerPage, 2);
       expect(
         tester.getRect(image(1)).right,
         closeTo(tester.getRect(image(2)).left, 1),
       );
       await jump(2);
+      state.onDown();
+      state.onUp();
+      await settle();
+      expect(state.page, 2);
       expect(
         tester.getRect(image(3)).right,
         closeTo(tester.getRect(image(4)).left, 1),

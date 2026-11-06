@@ -635,8 +635,18 @@ class _SearchHistory extends StatefulWidget {
 }
 
 class _SearchHistoryState extends State<_SearchHistory> {
+  bool get keywordOnly =>
+      appdata.implicitData['keywordOnlySearchHistory'] == true;
+
+  List<SearchHistoryEntry> get entries => keywordOnly
+      ? appdata.searchHistory
+            .map((word) => SearchHistoryEntry(keyword: word))
+            .toList()
+      : appdata.searchHistoryEntries;
+
   @override
   Widget build(BuildContext context) {
+    final historyEntries = entries;
     return SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
         if (index == 0) {
@@ -647,45 +657,64 @@ class _SearchHistoryState extends State<_SearchHistory> {
             leading: const Icon(Icons.history),
             contentPadding: EdgeInsets.zero,
             title: Text("Search History".tl),
-            trailing: Flyout(
-              flyoutBuilder: (context) {
-                return FlyoutContent(
-                  title: "Clear Search History".tl,
-                  actions: [
-                    FilledButton(
-                      child: Text("Clear".tl),
-                      onPressed: () {
-                        appdata.clearSearchHistory();
-                        context.pop();
-                        setState(() {});
-                      },
-                    ),
-                  ],
-                );
-              },
-              child: Builder(
-                builder: (context) {
-                  return Tooltip(
-                    message: "Clear".tl,
-                    child: IconButton(
-                      icon: const Icon(Icons.clear_all),
-                      onPressed: () {
-                        context.findAncestorStateOfType<FlyoutState>()!.show();
-                      },
-                    ),
-                  );
-                },
-              ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: keywordOnly
+                      ? 'Switch to detailed search history'.tl
+                      : 'Switch to keyword search history'.tl,
+                  icon: Icon(keywordOnly ? Icons.manage_search : Icons.subject),
+                  onPressed: () {
+                    setState(() {
+                      appdata.implicitData['keywordOnlySearchHistory'] =
+                          !keywordOnly;
+                    });
+                    appdata.writeImplicitData();
+                  },
+                ),
+                Flyout(
+                  flyoutBuilder: (context) {
+                    return FlyoutContent(
+                      title: "Clear Search History".tl,
+                      actions: [
+                        FilledButton(
+                          child: Text("Clear".tl),
+                          onPressed: () {
+                            appdata.clearSearchHistory();
+                            context.pop();
+                            setState(() {});
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                  child: Builder(
+                    builder: (context) {
+                      return Tooltip(
+                        message: "Clear".tl,
+                        child: IconButton(
+                          icon: const Icon(Icons.clear_all),
+                          onPressed: () {
+                            context
+                                .findAncestorStateOfType<FlyoutState>()!
+                                .show();
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           );
         }
-        return buildItem(index - 2);
-      }, childCount: 2 + appdata.searchHistoryEntries.length),
+        return buildItem(historyEntries[index - 2]);
+      }, childCount: 2 + historyEntries.length),
     ).sliverPaddingHorizontal(16);
   }
 
-  Widget buildItem(int index) {
-    final entry = appdata.searchHistoryEntries[index];
+  Widget buildItem(SearchHistoryEntry entry) {
     final sourceName = entry.isAggregate
         ? 'Aggregated search'.tl
         : ComicSource.find(entry.sourceKey ?? '')?.name ?? entry.sourceName;
@@ -702,7 +731,11 @@ class _SearchHistoryState extends State<_SearchHistory> {
           icon: Icons.delete,
           text: 'Delete'.tl,
           onClick: () {
-            appdata.removeSearchEntry(entry);
+            if (keywordOnly) {
+              appdata.removeSearchHistory(entry.keyword);
+            } else {
+              appdata.removeSearchEntry(entry);
+            }
             setState(() {});
           },
         ),

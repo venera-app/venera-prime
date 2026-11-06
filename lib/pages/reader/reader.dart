@@ -1062,12 +1062,12 @@ abstract mixin class _ReaderLocation {
 
   /// Returns true if the page is changed
   bool toNextPage() {
-    return toPage(page + 1);
+    return toPage((_pendingPage ?? page) + 1);
   }
 
   /// Returns true if the page is changed
   bool toPrevPage() {
-    return toPage(page - 1);
+    return toPage((_pendingPage ?? page) - 1);
   }
 
   int _animationCount = 0;
@@ -1075,7 +1075,9 @@ abstract mixin class _ReaderLocation {
 
   bool toPage(int page, {bool animate = true}) {
     if (_validatePage(page)) {
-      if (page == this.page && page != 1 && page != totalPages) {
+      if (page == (_pendingPage ?? this.page) &&
+          page != 1 &&
+          page != totalPages) {
         return false;
       }
       final navigationId = ++_navigationId;

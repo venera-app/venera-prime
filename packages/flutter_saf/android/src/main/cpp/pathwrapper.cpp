@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-#include <pthread.h>
 #include <android/log.h>
 #include <sys/stat.h>
 #include <cerrno>
@@ -45,20 +44,25 @@ static struct {
 
 static const char* fileModes[] = {"r", "rwt", "wa", "wt", "wa"};
 
-static pthread_key_t tsd_key{};
-
-void destructor_function(void *data) {
-    __android_log_print(ANDROID_LOG_DEBUG, "PathWrapper", "Detach javavm executed");
-    s_instance._vm->DetachCurrentThread();
-}
-
-// FFI threads stay attached between calls, so JNI locals otherwise accumulate
-// until Android aborts the process after sufficiently many file operations.
-class ScopedLocalFrame {
-    JNIEnv* env;
+// Dart's worker pool retires idle threads. Only detach threads we attached;
+// leaving them attached can make ART abort when a worker exits.
+class ScopedJniEnv {
+    JNIEnv* env = nullptr;
+    bool attached = false;
 public:
-    explicit ScopedLocalFrame(JNIEnv* value) : env(value) { env->PushLocalFrame(32); }
-    ~ScopedLocalFrame() { env->PopLocalFrame(nullptr); }
+    ScopedJniEnv() {
+        if (s_instance._vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6)
+                == JNI_EDETACHED) {
+            s_instance._vm->AttachCurrentThread(&env, nullptr);
+            attached = true;
+        }
+        env->PushLocalFrame(32);
+    }
+    ~ScopedJniEnv() {
+        env->PopLocalFrame(nullptr);
+        if (attached) s_instance._vm->DetachCurrentThread();
+    }
+    JNIEnv* get() const { return env; }
 };
 
 FFIEXPORT
@@ -73,7 +77,6 @@ void _free(void* ptr) {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     s_instance._vm = vm;
-    pthread_key_create(&tsd_key, destructor_function);
     return JNI_VERSION_1_6;
 }
 
@@ -130,9 +133,8 @@ Java_org_pkuism_flutter_1saf_SAFPathWrapper_destroyNativeProxy(JNIEnv* env, jobj
 FFIEXPORT
 void deleteDescriptor(int32_t descriptor) {
     if (descriptor <= 0) return;
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     env->CallVoidMethod(s_instance._clsInst, s_instance.deleteDescriptor, (jint)
     descriptor);
@@ -146,9 +148,8 @@ struct DirContent {
 };
 FFIEXPORT
 DirContent* listDir(uint32_t descriptor) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     DirContent* dirInfo = nullptr;
     jobject pairRet = env->CallObjectMethod(s_instance._clsInst, s_instance.listDir, (jint)descriptor);
@@ -191,9 +192,8 @@ DirContent* listDir(uint32_t descriptor) {
 
 FFIEXPORT
 int32_t openDir(int8_t *path) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     jstring open_path = env->NewStringUTF((char*)path);
     return env->CallIntMethod(s_instance._clsInst, s_instance.openDir, open_path);
@@ -201,18 +201,16 @@ int32_t openDir(int8_t *path) {
 
 FFIEXPORT
 int32_t getParent(int32_t descriptor) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     return env->CallIntMethod(s_instance._clsInst, s_instance.getParent, descriptor);
 }
 
 FFIEXPORT
 int32_t createDir(int8_t *path, bool recursive) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     jstring create_path = env->NewStringUTF((char*)path);
 
@@ -221,9 +219,8 @@ int32_t createDir(int8_t *path, bool recursive) {
 
 FFIEXPORT
 int32_t renameDir(int32_t descriptor, int8_t *newPath) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     jstring n = env->NewStringUTF((char*)newPath);
 
@@ -232,9 +229,8 @@ int32_t renameDir(int32_t descriptor, int8_t *newPath) {
 
 FFIEXPORT
 int32_t deleteDir(int32_t descriptor, bool recursive) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     int32_t result = env->CallIntMethod(s_instance._clsInst, s_instance.deleteDir, descriptor, recursive);
     return result;
@@ -242,9 +238,8 @@ int32_t deleteDir(int32_t descriptor, bool recursive) {
 
 FFIEXPORT
 int32_t createFile(int8_t *path, bool recursive) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     jstring create_path = env->NewStringUTF((char*)path);
 
@@ -254,9 +249,8 @@ int32_t createFile(int8_t *path, bool recursive) {
 
 FFIEXPORT
 int32_t renameFile(int32_t descriptor, int8_t *newPath, bool copy) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     jstring n = env->NewStringUTF((char*)newPath);
 
@@ -265,9 +259,8 @@ int32_t renameFile(int32_t descriptor, int8_t *newPath, bool copy) {
 
 FFIEXPORT
 int32_t deleteFile(int32_t descriptor) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     int32_t result = env->CallIntMethod(s_instance._clsInst, s_instance.deleteFile, descriptor);
     return result;
@@ -275,9 +268,8 @@ int32_t deleteFile(int32_t descriptor) {
 
 FFIEXPORT
 int32_t getFileSize(int32_t descriptor) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
 
     int32_t result = env->CallIntMethod(s_instance._clsInst, s_instance.getFileSize, descriptor);
     return result;
@@ -286,9 +278,8 @@ int32_t getFileSize(int32_t descriptor) {
 //get a error code or fd
 FFIEXPORT
 int32_t _fopen(int32_t descriptor, int32_t mode) {
-    JNIEnv* env;
-    s_instance._vm->AttachCurrentThread(&env, nullptr);
-    ScopedLocalFrame localFrame(env);
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
     jstring m = env->NewStringUTF(fileModes[mode]);
 
     return env->CallIntMethod(s_instance._clsInst, s_instance.openFile, descriptor, m);
