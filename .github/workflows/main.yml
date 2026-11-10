@@ -409,7 +409,7 @@ jobs:
   Update_AltStore:
     runs-on: ubuntu-22.04
     needs: [Validate_Version, Release]
-    if: ${{ needs.Release.result == 'success' }}
+    if: ${{ always() && needs.Release.result == 'success' && needs.Validate_Version.result == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:

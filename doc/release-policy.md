@@ -61,6 +61,7 @@
 2. **机器人发布**：通过 `.github/workflows/main.yml`（Build ALL）的机器人流程发布，使 Release 发布者保持 `github-actions[bot]`。默认由机器人触发；仅用户明确同意时才启用 `allow_personal_trigger`，且 Release 仍由机器人发布。不要用个人身份直接创建 Release 替代该流程。
    - 没有本地机器人凭证时，可手动启动 `.github/workflows/dispatch-release.yml`，传入已存在的 `vX.Y.Z` 标签。该入口使用 GitHub Actions token 调度 `main.yml`，固定六平台全开、`publish_release=true`、`allow_personal_trigger=false`；Build ALL 仍执行原有提交身份与实际触发者检查。调度入口的人工操作仍保留在 Actions／审计记录中，不等于隐藏操作者。
 3. **六平台全量构建**：正式发布必须完整构建 Android、iOS、macOS、Windows、Linux x64、Linux ARM64。手动触发时所有 `build_*` 输入均为 `true`，指定实际 `release_tag` 和 `publish_release=true`。以这六个构建任务及机器人 Release 任务全部成功作为发布完成条件；skipped 不视为成功。
+   - 托管 runner 分配失败时，可通过机器人调度入口的 `retry_run_id` 重试失败任务，保留已成功的构建。若六平台全部成功但发布失败，可用 `publish_build_run_id` 从默认分支恢复发布。流程必须核对来源 run 的机器人身份、标签提交及六个任务均成功，然后读取原 run 的产物；恢复 run 中跳过的构建不计为成功，成功证据来自原 run。不得移动已有标签来规避发布错误。
 4. **标准附件范围**：现有工作流按以下清单生成 **14 个上传附件**（GitHub 自动提供的源码压缩包不计入）。默认不再单独读取、下载或核验线上附件，也不下载 Actions 构建副本比对 SHA-256。仅在用户明确要求或处理具体发布故障时，执行相关检查；数量与签名等未经核验时，不宣称已核验。
 
 | 平台 | 当前标准附件 | 数量 |
