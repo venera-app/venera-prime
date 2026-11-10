@@ -12,7 +12,8 @@ on:
         type: string
 permissions:
   actions: write
-  contents: read
+  # A bot rerun must retain the release publisher's contents permission.
+  contents: write
 jobs:
   Dispatch:
     runs-on: ubuntu-22.04
