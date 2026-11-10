@@ -16,6 +16,8 @@ import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/app_update.dart';
 import 'package:venera/foundation/app_update_service.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/theme_colors.dart';
+import 'package:venera/pages/settings/theme_color_dialog.dart';
 import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/favorites.dart';

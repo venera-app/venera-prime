@@ -5,6 +5,7 @@ import 'package:venera/pages/search_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/pages/settings/home_layout_page.dart';
 import 'package:venera/utils/translations.dart';
+import 'package:venera/utils/app_links.dart';
 
 import '../components/components.dart';
 import '../foundation/app.dart';
@@ -42,8 +43,23 @@ class _MainPageState extends State<MainPage> {
     _observer = NaviObserver();
     _navigatorKey = GlobalKey();
     App.mainNavigatorKey = _navigatorKey;
+    setAppLinkNavigatorMounted(false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && identical(App.mainNavigatorKey, _navigatorKey)) {
+        setAppLinkNavigatorMounted(_navigatorKey?.currentState != null);
+      }
+    });
     index = int.tryParse(appdata.settings['initialPage'].toString()) ?? 0;
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    if (identical(App.mainNavigatorKey, _navigatorKey)) {
+      setAppLinkNavigatorMounted(false);
+      App.mainNavigatorKey = null;
+    }
+    super.dispose();
   }
 
   final _pages = [

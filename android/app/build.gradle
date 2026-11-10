@@ -83,6 +83,7 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders["primeTestDocumentsEnabled"] = integrationTestBuild ? "true" : "false"
         manifestPlaceholders["primeAppLabel"] = integrationTestBuild ? "Venera Prime Test" : "Venera Prime"
         applicationId = integrationTestBuild ? "com.github.wgh136.venera.prime.integrationtest" : "com.github.wgh136.venera.prime"
         // You can update the following values to match your application needs.

@@ -112,7 +112,7 @@ Future<InitializationFailure?> init() async {
   );
   if (App.isAndroid) {
     unawaited(AppUpdateService.instance.restore());
-    handleLinks();
+    handleLinks(_ensureComicSourcesInitialized());
     handleTextShare();
     try {
       await FlutterDisplayMode.setHighRefreshRate();

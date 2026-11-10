@@ -9,12 +9,14 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/pages/auth_page.dart';
 import 'package:venera/pages/main_page.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/app_links.dart';
 import 'package:window_manager/window_manager.dart';
 import 'components/components.dart';
 import 'components/background_tasks.dart';
 import 'components/window_frame.dart';
 import 'foundation/app.dart';
 import 'foundation/appdata.dart';
+import 'foundation/theme_colors.dart';
 import 'headless.dart';
 import 'init.dart';
 import 'pages/project_notice.dart';
@@ -113,8 +115,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             acknowledgementRequired: true,
           );
         }
-        if (!mounted) return;
+        if (!mounted || !_authenticated) return;
         _startupCompleted = true;
+        setAppLinkNavigationReady(true);
         _tasksVisible.value = _authenticated;
         checkUpdates();
       } finally {
@@ -130,6 +133,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    setAppLinkNavigationReady(false);
     _sourceUpdateTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _tasksVisible.dispose();
@@ -173,6 +177,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         !IO.isSelectingFiles) {
       isAuthPageActive = true;
       _authenticated = false;
+      setAppLinkNavigationReady(false);
       _tasksVisible.value = false;
       App.rootContext.to(
         () => AuthPage(
@@ -180,6 +185,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             App.rootContext.pop();
             isAuthPageActive = false;
             _authenticated = true;
+            setAppLinkNavigationReady(_startupCompleted);
             _tasksVisible.value = _startupCompleted;
             _scheduleStartup();
           },
@@ -199,19 +205,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  Color translateColorSetting() {
-    return switch (appdata.settings['color']) {
-      'red' => Colors.red,
-      'pink' => Colors.pink,
-      'purple' => Colors.purple,
-      'green' => Colors.green,
-      'orange' => Colors.orange,
-      'blue' => Colors.blue,
-      'yellow' => Colors.yellow,
-      'cyan' => Colors.cyan,
-      _ => Colors.blue,
-    };
-  }
+  Color translateColorSetting() => resolveThemeColor(
+    appdata.settings['color'],
+    appdata.settings['customThemeColor'],
+  );
 
   ThemeData getTheme(
     Color primary,

@@ -142,6 +142,44 @@ void registerReaderSpreadTests({bool device = false}) {
       expect(find.byType(CustomSlider), findsOneWidget);
       expect(tester.widget<CustomSlider>(find.byType(CustomSlider)).max, 3);
       final dynamic state = tester.state(find.byType(Reader));
+      // A long press can arrive before PhotoView has decoded an image.
+      final dynamic gallery = tester.state(
+        find.byWidgetPredicate(
+          (widget) => widget.runtimeType.toString() == '_GalleryMode',
+        ),
+      );
+      appdata.settings['enableLongPressToZoom'] = true;
+      gallery.fingers = 1;
+      final controllers = Map.of(gallery.photoViewControllers as Map);
+      gallery.photoViewControllers.clear();
+      gallery.handleLongPressDown(const Offset(100, 100));
+      gallery.handleLongPressUp(const Offset(100, 100));
+      gallery.handleDoubleTap(const Offset(100, 100));
+      expect(gallery.isLongPressing, isFalse);
+      for (final entry in controllers.entries) {
+        gallery.photoViewControllers[entry.key] = entry.value;
+      }
+      final dynamic current = gallery.photoViewControllers[state.page];
+      final initialScale = current.getInitialScale;
+      current.getInitialScale = () => null;
+      gallery.handleLongPressDown(const Offset(100, 100));
+      gallery.handleLongPressUp(const Offset(100, 100));
+      expect(gallery.isLongPressing, isFalse);
+      current.getInitialScale = () => 1.0;
+      final animateScale = current.animateScale;
+      var animations = 0;
+      current.animateScale = (double scale, [Offset? position]) {
+        animations++;
+      };
+      gallery.handleLongPressDown(const Offset(100, 100));
+      gallery.photoViewControllers.remove(state.page);
+      gallery.handleLongPressUp(const Offset(100, 100));
+      expect(animations, 1, reason: 'release must not zoom a missing/new page');
+      gallery.photoViewControllers[state.page] = current;
+      current.animateScale = animateScale;
+      current.getInitialScale = initialScale;
+      gallery.fingers = 0;
+      expect(tester.takeException(), isNull);
       final pageBeforeReload = state.page;
       await tester.runAsync(() async => state.reloadVisibleImages());
       await tester.pump();
@@ -255,6 +293,7 @@ void registerReaderSpreadTests({bool device = false}) {
         closeTo(tester.getRect(image(2)).left, 1),
       );
       expect(tester.takeException(), isNull);
+      final heldGesture = await tester.startGesture(tester.getCenter(image(2)));
       await tester.pumpWidget(
         MaterialApp(
           navigatorKey: App.rootNavigatorKey,
@@ -263,6 +302,8 @@ void registerReaderSpreadTests({bool device = false}) {
         ),
       );
       await tester.pump(const Duration(seconds: 2));
+      await heldGesture.up();
+      expect(tester.takeException(), isNull);
       local.close();
       LocalFavoritesManager().close();
       HistoryManager().close();

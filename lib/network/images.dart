@@ -120,6 +120,18 @@ abstract class ImageDownloader {
     _loadingImages.clear();
   }
 
+  /// Invalidate both an in-flight download and its processed disk cache.
+  static Future<void> invalidateComicImage(
+    String imageKey,
+    String? sourceKey,
+    String cid,
+    String eid,
+  ) async {
+    final key = '$imageKey@$sourceKey@$cid@$eid';
+    _loadingImages.remove(key)?.cancel();
+    await CacheManager().delete(key);
+  }
+
   /// Load a comic image from the network or cache.
   /// The function will prevent multiple requests for the same image.
   static Stream<ImageDownloadProgress> loadComicImage(
@@ -132,8 +144,16 @@ abstract class ImageDownloader {
     if (_loadingImages.containsKey(cacheKey)) {
       return _loadingImages[cacheKey]!.stream;
     }
-    final stream = _StreamWrapper<ImageDownloadProgress>(
-      _loadComicImage(imageKey, sourceKey, cid, eid),
+    late final _StreamWrapper<ImageDownloadProgress> stream;
+    stream = _StreamWrapper<ImageDownloadProgress>(
+      _loadComicImage(
+        imageKey,
+        sourceKey,
+        cid,
+        eid,
+        isCurrent: () =>
+            identical(_loadingImages[cacheKey], stream) && !stream.isClosed,
+      ),
       (wrapper) {
         if (identical(_loadingImages[cacheKey], wrapper)) {
           _loadingImages.remove(cacheKey);
@@ -169,6 +189,7 @@ abstract class ImageDownloader {
     String eid, {
     bool cacheResult = true,
     bool useCache = true,
+    bool Function()? isCurrent,
   }) async* {
     final cacheKey = "$imageKey@$sourceKey@$cid@$eid";
     final data = useCache ? await CacheManager().readCache(cacheKey) : null;
@@ -275,7 +296,7 @@ abstract class ImageDownloader {
             'Image response or processing result is not an image',
           );
         }
-        if (cacheResult) {
+        if (cacheResult && (isCurrent?.call() ?? true)) {
           await CacheManager().writeCache(cacheKey, imageData);
         }
         yield ImageDownloadProgress(

@@ -56,6 +56,7 @@ class ComicPage extends StatefulWidget {
     this.cover,
     this.title,
     this.heroID,
+    this.initialReaderPage,
   });
 
   final String id;
@@ -67,6 +68,9 @@ class ComicPage extends StatefulWidget {
   final String? title;
 
   final int? heroID;
+
+  /// One-based page from an external gallery page URL.
+  final int? initialReaderPage;
 
   @override
   State<ComicPage> createState() => _ComicPageState();
@@ -84,6 +88,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   bool isDownloaded = false;
 
   bool showFAB = false;
+  bool _openedLinkPage = false;
 
   @override
   void onReadEnd() {
@@ -282,6 +287,13 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     }
     if (comic.chapters == null) {
       isDownloaded = LocalManager().isDownloaded(comic.id, comic.comicType, 0);
+    }
+    final page = widget.initialReaderPage;
+    if (!_openedLinkPage && page != null && page > 0) {
+      _openedLinkPage = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) read(1, page);
+      });
     }
   }
 

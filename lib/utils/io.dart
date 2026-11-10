@@ -408,11 +408,26 @@ final class _IOOverrides extends IOOverrides {
   // Dart's base IOOverrides omits the native path terminator for type checks.
   @override
   Future<FileSystemEntityType> fseGetType(String path, bool followLinks) =>
-      super.fseGetType('$path\x00', followLinks);
+      App.isAndroid && path.startsWith('android://')
+      ? AndroidFile.fromPath(path).then(
+          (file) async => await file!.exists()
+              ? (await file.stat()).type
+              : FileSystemEntityType.notFound,
+        )
+      : super.fseGetType('$path\x00', followLinks);
 
   @override
   FileSystemEntityType fseGetTypeSync(String path, bool followLinks) =>
-      super.fseGetTypeSync('$path\x00', followLinks);
+      App.isAndroid && path.startsWith('android://')
+      ? _safTypeSync(path)
+      : super.fseGetTypeSync('$path\x00', followLinks);
+
+  FileSystemEntityType _safTypeSync(String path) {
+    final file = AndroidFile.fromPathSync(path)!;
+    return file.existsSync()
+        ? file.statSync().type
+        : FileSystemEntityType.notFound;
+  }
 
   @override
   Directory createDirectory(String path) {

@@ -33,6 +33,7 @@ class _AndroidNativePathFuncProxy {
   late final int Function(int descriptor, Pointer<f.Utf8> path) _renameDir;
   late final int Function(int descriptor, bool recursive) deleteDir;
   late final int Function(int descriptor) getFileSize;
+  late final Pointer<f.Utf8> Function(int descriptor) _statDoc;
   late final int Function(Pointer<f.Utf8> path, bool recursive) _createFile;
   late final int Function(int descriptor, Pointer<f.Utf8> path, bool copy)
       _renameFile;
@@ -83,6 +84,7 @@ class _AndroidNativePathFuncProxy {
           .lookup<NativeFunction<Void Function(Int32)>>('deleteDescriptor')
           .asFunction();
       deleteDir = nativeLib.lookup<NativeFunction<Int32 Function(Int32, Bool)>>('deleteDir').asFunction();
+      _statDoc = nativeLib.lookupFunction<Pointer<f.Utf8> Function(Int32), Pointer<f.Utf8> Function(int)>('statDoc');
       getFileSize = nativeLib.lookup<NativeFunction<Int32 Function(Int32)>>('getFileSize').asFunction();
       _renameDir = nativeLib
           .lookup<NativeFunction<Int32 Function(Int32, Pointer<f.Utf8>)>>(
@@ -182,6 +184,7 @@ class _AndroidNativePathFuncProxy {
     arr.setAll(0, bytes);
     var ret = _fileWriteAllBytes(descriptor, p, bytes.length, fileModeToInt(m));
     _AndroidNativeAllocator.instance.free(p);
+    if (ret != bytes.length) throw const FileSystemException("Failed to write SAF document");
     return ret;
   }
 }
@@ -289,9 +292,19 @@ class SAFTaskWorker {
 class _Document {
   static const String mediaPrefix = "android://";
   String _myPath;//resolved path
-  int _descriptor;//hashcode of document file, always >=-1
+  int _handle;
+  int get _descriptor => _handle;
+  set _descriptor(int value) {
+    _finalizer.detach(this);
+    if (_handle > 0) _AndroidNativePathFuncProxy.instance.deleteDescriptor(_handle);
+    _handle = value;
+    _finalizer.attach(this, value, detach: this);
+  }
+  static final _finalizer = Finalizer<int>((value) {
+    if (value > 0) _AndroidNativePathFuncProxy.instance.deleteDescriptor(value);
+  });
+  _Document(this._myPath, this._handle);
 
-  _Document(this._myPath, this._descriptor);
 
   static Future<_Document?> _refreshDoc(String path) {
     if (!path.startsWith(mediaPrefix)) {
@@ -319,15 +332,9 @@ class _Document {
 }
 
 class AndroidDirectory extends _Document implements Directory {
-  AndroidDirectory._(super._myPath, super._descriptor) {
-    _finalizer.attach(this, _descriptor, detach: this);
+  AndroidDirectory._(super._myPath, super._handle) {
+    _Document._finalizer.attach(this, _descriptor, detach: this);
   }
-
-  static final Finalizer<int> _finalizer = Finalizer<int>((value) {
-    if (value > 0) {
-      _AndroidNativePathFuncProxy.instance.deleteDescriptor(value);
-    }
-  });
 
   static Future<AndroidDirectory?> pickDirectory() async {
     return FlutterSafPlatform.instance.pick().then((result) {
@@ -425,11 +432,14 @@ class AndroidDirectory extends _Document implements Directory {
 
   @override
   Future<bool> exists() async {
-    return Future.value(_descriptor >= 0);
+    final descriptor = await SAFTaskWorker().runTask<int>(_AndroidNativePathFuncProxy.instance.openDir, [_myPath]);
+    _descriptor = descriptor;
+    return descriptor >= 0;
   }
 
   @override
   bool existsSync() {
+    _descriptor = _AndroidNativePathFuncProxy.instance.openDir(_myPath);
     return _descriptor >= 0;
   }
 
@@ -439,16 +449,17 @@ class AndroidDirectory extends _Document implements Directory {
   @override
   Stream<FileSystemEntity> list({bool recursive = false, bool followLinks = true}) async* {
     if(_descriptor < 0) {
-      return;
+      throw FileSystemException("Cannot list missing SAF directory", _myPath);
     }
 
     var dc = await SAFTaskWorker()
         .runTask(_AndroidNativePathFuncProxy.instance._listDir, [_descriptor]);
     final Pointer<_DirContent> dirContent = dc.cast<_DirContent>();
+    if (dirContent == nullptr) throw FileSystemException("Failed to list SAF directory", _myPath);
     var f1 = dirContent.ref.folders.toDartString();
     _AndroidNativeAllocator.instance.free(dirContent.ref.folders);
     if (f1.isNotEmpty) {
-      var dirs = f1.split('|');
+      var dirs = f1.split('|').map(Uri.decodeComponent).toList();
       // Own the descriptor values before recursive calls or async yields.
       final f1h = dirContent.ref.folderDescriptors
           .asTypedList(dirs.length).toList(growable: false);
@@ -465,7 +476,7 @@ class AndroidDirectory extends _Document implements Directory {
     var f2 = dirContent.ref.files.toDartString();
     _AndroidNativeAllocator.instance.free(dirContent.ref.files);
     if (f2.isNotEmpty) {
-      var files = f2.split('|');
+      var files = f2.split('|').map(Uri.decodeComponent).toList();
       // Own the descriptor values before recursive calls or async yields.
       final f2h = dirContent.ref.fileDescriptors
           .asTypedList(files.length).toList(growable: false);
@@ -481,14 +492,15 @@ class AndroidDirectory extends _Document implements Directory {
   List<FileSystemEntity> listSync({bool recursive = false, bool followLinks = true}) {
     var result = <FileSystemEntity>[];
     if(_descriptor < 0) {
-      return result;
+      throw FileSystemException("Cannot list missing SAF directory", _myPath);
     }
 
     var contents = _AndroidNativePathFuncProxy.instance._listDir(_descriptor);
+    if (contents == nullptr) throw FileSystemException("Failed to list SAF directory", _myPath);
     var f1 = contents.ref.folders.toDartString();
     _AndroidNativeAllocator.instance.free(contents.ref.folders);
     if (f1.isNotEmpty) {
-      var dirs = f1.split('|');
+      var dirs = f1.split('|').map(Uri.decodeComponent).toList();
       // Own the descriptor values before recursive calls or async yields.
       final f1h = contents.ref.folderDescriptors
           .asTypedList(dirs.length).toList(growable: false);
@@ -506,7 +518,7 @@ class AndroidDirectory extends _Document implements Directory {
     var f2 = contents.ref.files.toDartString();
     _AndroidNativeAllocator.instance.free(contents.ref.files);
     if (f2.isNotEmpty) {
-      var files = f2.split('|');
+      var files = f2.split('|').map(Uri.decodeComponent).toList();
       // Own the descriptor values before recursive calls or async yields.
       final f2h = contents.ref.fileDescriptors
           .asTypedList(files.length).toList(growable: false);
@@ -521,15 +533,10 @@ class AndroidDirectory extends _Document implements Directory {
 
   @override
   Directory get parent {
-    if(_descriptor < 0) {
-      throw const FileSystemException("Invalid directory.");
-    }
-    var r = _AndroidNativePathFuncProxy.instance.getParent(_descriptor);
-    if(r != -1) {
-      //Already opened, thus we construct directly
-      return AndroidDirectory._(_myPath.substring(0, _myPath.lastIndexOf('/')), r);
-    }
-    throw const FileSystemException("Invalid directory.");
+    final separator = _myPath.lastIndexOf('/');
+    final path = separator < _Document.mediaPrefix.length
+        ? _Document.mediaPrefix : _myPath.substring(0, separator);
+    return AndroidDirectory.fromPathSync(path)!;
   }
 
   @override
@@ -601,14 +608,10 @@ class AndroidDirectory extends _Document implements Directory {
   }
 
   @override
-  Future<FileStat> stat() {
-    throw UnimplementedError();
-  }
+  Future<FileStat> stat() async => SAFTaskWorker().runTask(_readStat, [_descriptor]);
 
   @override
-  FileStat statSync() {
-    throw UnimplementedError();
-  }
+  FileStat statSync() => _readStat(_descriptor);
 
   @override
   Uri get uri => throw UnimplementedError();
@@ -620,15 +623,9 @@ class AndroidDirectory extends _Document implements Directory {
 }
 
 class AndroidFile extends _Document implements File {
-  AndroidFile._(super._myPath, super._descriptor) {
-    _finalizer.attach(this, _descriptor, detach: this);
+  AndroidFile._(super._myPath, super._handle) {
+    _Document._finalizer.attach(this, _descriptor, detach: this);
   }
-
-  static final Finalizer<int> _finalizer = Finalizer<int>((value) {
-    if (value > 0) {
-      _AndroidNativePathFuncProxy.instance.deleteDescriptor(value);
-    }
-  });
 
   static AndroidFile? fromPathSync(String path) {
     var doc = _Document._refreshDocSync(path);
@@ -667,9 +664,7 @@ class AndroidFile extends _Document implements File {
         }
         throw FileSystemException("Copy failed", _myPath);
       }
-      _myPath = newPath;
-      _descriptor = result;
-      return this;
+      return AndroidFile._(newPath, result);
     });
   }
 
@@ -689,9 +684,7 @@ class AndroidFile extends _Document implements File {
       }
       throw FileSystemException("Copy failed", _myPath);
     }
-    _myPath = newPath;
-    _descriptor = result;
-    return this;
+    return AndroidFile._(newPath, result);
   }
 
   @override
@@ -760,11 +753,14 @@ class AndroidFile extends _Document implements File {
 
   @override
   Future<bool> exists() async {
-    return Future.value(_descriptor >= 0);
+    final descriptor = await SAFTaskWorker().runTask<int>(_AndroidNativePathFuncProxy.instance.openDir, [_myPath]);
+    _descriptor = descriptor;
+    return descriptor >= 0;
   }
 
   @override
   bool existsSync() {
+    _descriptor = _AndroidNativePathFuncProxy.instance.openDir(_myPath);
     return _descriptor >= 0;
   }
 
@@ -772,21 +768,10 @@ class AndroidFile extends _Document implements File {
   bool get isAbsolute => true;
 
   @override
-  Future<int> length() {
-    return SAFTaskWorker().runTask(
-        _AndroidNativePathFuncProxy.instance.getFileSize,
-        [_descriptor]).then((s) {
-      if (s == null) {
-        return 0;
-      }
-      return s;
-    });
-  }
+  Future<int> length() async => (await stat()).size;
 
   @override
-  int lengthSync() {
-    return _AndroidNativePathFuncProxy.instance.getFileSize(_descriptor);
-  }
+  int lengthSync() => statSync().size;
 
   @override
   Future<RandomAccessFile> open({FileMode mode = FileMode.read}) {
@@ -809,14 +794,10 @@ class AndroidFile extends _Document implements File {
 
   @override
   Directory get parent {
-    if(_descriptor < 0) {
-      throw FileSystemException("Invalid file.", super._myPath);
-    }
-    var r = _AndroidNativePathFuncProxy.instance.getParent(_descriptor);
-    if(r != -1) {
-      return AndroidDirectory._(_myPath.substring(0, _myPath.lastIndexOf('/')), r);
-    }
-    throw FileSystemException("Invalid file.", super._myPath);
+    final separator = _myPath.lastIndexOf('/');
+    final path = separator < _Document.mediaPrefix.length
+        ? _Document.mediaPrefix : _myPath.substring(0, separator);
+    return AndroidDirectory.fromPathSync(path)!;
   }
 
   @override
@@ -918,34 +899,22 @@ class AndroidFile extends _Document implements File {
   }
 
   @override
-  Future<List<String>> readAsLines({Encoding encoding = utf8}) {
-    throw UnimplementedError();
-  }
+  Future<List<String>> readAsLines({Encoding encoding = utf8}) async => const LineSplitter().convert(await readAsString(encoding: encoding));
 
   @override
-  List<String> readAsLinesSync({Encoding encoding = utf8}) {
-    throw UnimplementedError();
-  }
+  List<String> readAsLinesSync({Encoding encoding = utf8}) => const LineSplitter().convert(readAsStringSync(encoding: encoding));
 
   @override
-  Future<String> readAsString({Encoding encoding = utf8}) {
-    throw UnimplementedError();
-  }
+  Future<String> readAsString({Encoding encoding = utf8}) async => encoding.decode(await readAsBytes());
 
   @override
-  String readAsStringSync({Encoding encoding = utf8}) {
-    throw UnimplementedError();
-  }
+  String readAsStringSync({Encoding encoding = utf8}) => encoding.decode(readAsBytesSync());
 
   @override
-  Future<File> writeAsString(String contents, {FileMode mode = FileMode.write, Encoding encoding = utf8, bool flush = false}) {
-    throw UnimplementedError();
-  }
+  Future<File> writeAsString(String contents, {FileMode mode = FileMode.write, Encoding encoding = utf8, bool flush = false}) => writeAsBytes(encoding.encode(contents), mode: mode, flush: flush);
 
   @override
-  void writeAsStringSync(String contents, {FileMode mode = FileMode.write, Encoding encoding = utf8, bool flush = false}) {
-    throw UnimplementedError();
-  }
+  void writeAsStringSync(String contents, {FileMode mode = FileMode.write, Encoding encoding = utf8, bool flush = false}) => writeAsBytesSync(encoding.encode(contents), mode: mode, flush: flush);
 
   @override
   Uri get uri => throw UnimplementedError();
@@ -966,14 +935,10 @@ class AndroidFile extends _Document implements File {
   }
 
   @override
-  Future<DateTime> lastModified() {
-    throw UnimplementedError();
-  }
+  Future<DateTime> lastModified() async => (await stat()).modified;
 
   @override
-  DateTime lastModifiedSync() {
-    throw UnimplementedError();
-  }
+  DateTime lastModifiedSync() => statSync().modified;
 
   @override
   Future<String> resolveSymbolicLinks() {
@@ -1006,14 +971,10 @@ class AndroidFile extends _Document implements File {
   }
 
   @override
-  Future<FileStat> stat() {
-    throw UnimplementedError();
-  }
+  Future<FileStat> stat() async => SAFTaskWorker().runTask(_readStat, [_descriptor]);
 
   @override
-  FileStat statSync() {
-    throw UnimplementedError();
-  }
+  FileStat statSync() => _readStat(_descriptor);
 }
 
 class AndroidRandomAccessFile implements RandomAccessFile{
@@ -1397,4 +1358,29 @@ class AndroidRandomAccessFile implements RandomAccessFile{
       throw FileSystemException("$_fd: Operation is pending.");
     }
   }
+}
+
+FileStat _readStat(int descriptor) {
+  final proxy = _AndroidNativePathFuncProxy.instance;
+  final pointer = proxy._statDoc(descriptor);
+  if (pointer == nullptr) throw const FileSystemException('Cannot stat SAF document');
+  try {
+    return _SafFileStat(jsonDecode(pointer.toDartString()) as Map<String, dynamic>);
+  } finally {
+    proxy.free(pointer.cast());
+  }
+}
+
+class _SafFileStat implements FileStat {
+  _SafFileStat(Map<String, dynamic> data)
+      : modified = DateTime.fromMillisecondsSinceEpoch(data['modified'] as int),
+        size = data['size'] as int,
+        type = data['directory'] == true ? FileSystemEntityType.directory : FileSystemEntityType.file;
+  @override final DateTime modified;
+  @override final int size;
+  @override final FileSystemEntityType type;
+  @override DateTime get accessed => modified;
+  @override DateTime get changed => modified;
+  @override int get mode => 0;
+  @override String modeString() => '---------';
 }

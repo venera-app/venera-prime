@@ -25,6 +25,7 @@ static struct {
     jmethodID deleteDir;
     jmethodID openFile;
     jmethodID getFileSize;
+    jmethodID statDoc;
     jmethodID createFile;
     jmethodID renameFile;
     jmethodID deleteFile;
@@ -100,6 +101,7 @@ Java_org_pkuism_flutter_1saf_SAFPathWrapper_setupNativeProxy(JNIEnv* env, jobjec
     s_instance.deleteDir = env->GetMethodID(cls, "deleteDir", "(IZ)I");
     s_instance.renameDir = env->GetMethodID(cls, "renameDirectory", "(ILjava/lang/String;)I");
     s_instance.openFile = env->GetMethodID(cls, "fopen", "(ILjava/lang/String;)I");
+    s_instance.statDoc = env->GetMethodID(cls, "statDoc", "(I)Ljava/lang/String;");
     s_instance.getFileSize = env->GetMethodID(cls, "getFileSize", "(I)I");
     s_instance.createFile = env->GetMethodID(cls, "createDirectory", "(Ljava/lang/String;ZZ)I");
     s_instance.renameFile = env->GetMethodID(cls, "renameFile", "(ILjava/lang/String;Z)I");
@@ -153,6 +155,7 @@ DirContent* listDir(uint32_t descriptor) {
 
     DirContent* dirInfo = nullptr;
     jobject pairRet = env->CallObjectMethod(s_instance._clsInst, s_instance.listDir, (jint)descriptor);
+    if (!pairRet) return nullptr;
     jobject folders = env->GetObjectField(pairRet, s_instance.pair_first);
 
     auto foldersStr = (jstring) env->GetObjectField(folders, s_instance.pair_first);
@@ -383,4 +386,15 @@ int32_t fileWriteAllBytes(int32_t descriptor, int8_t* data, int32_t sizeOfData, 
 
     _fclose(file);
     return size;
+}
+FFIEXPORT
+char* statDoc(int32_t descriptor) {
+    ScopedJniEnv scope;
+    JNIEnv* env = scope.get();
+    auto value = (jstring)env->CallObjectMethod(s_instance._clsInst, s_instance.statDoc, descriptor);
+    if (!value) return nullptr;
+    const char* bytes = env->GetStringUTFChars(value, nullptr);
+    char* result = strdup(bytes);
+    env->ReleaseStringUTFChars(value, bytes);
+    return result;
 }

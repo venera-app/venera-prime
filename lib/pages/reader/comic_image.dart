@@ -97,13 +97,21 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
 
   Future<void> reload() async {
     final provider = widget.image;
-    if (provider is ReaderImageProvider &&
-        !provider.imageKey.startsWith('file://')) {
-      await CacheManager().delete(
-        '${provider.imageKey}@${provider.sourceKey}@${provider.cid}@${provider.eid}',
+    ImageProvider original = provider;
+    while (original is ResizeImage) {
+      original = original.imageProvider;
+    }
+    if (original is ReaderImageProvider &&
+        !original.imageKey.startsWith('file://')) {
+      await ImageDownloader.invalidateComicImage(
+        original.imageKey,
+        original.sourceKey,
+        original.cid,
+        original.eid,
       );
     }
     await provider.evict();
+    if (!identical(provider, original)) await original.evict();
     if (!mounted) return;
     _loadingProgressTimer?.cancel();
     _loadingProgressTimer = null;

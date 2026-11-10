@@ -342,6 +342,10 @@ class LocalManager with ChangeNotifier {
       testFile.createSync();
       testFile.deleteSync();
     } catch (e) {
+      if (path.startsWith('android://')) {
+        Log.error("IO", "SAF storage unavailable; keeping configured path: $e");
+        return;
+      }
       Log.error(
         "IO",
         "Failed to create test file in local path: $e\nUsing default path instead.",
@@ -440,7 +444,8 @@ class LocalManager with ChangeNotifier {
     if (File(FilePath.join(App.dataPath, 'local_path')).existsSync()) {
       final pathFile = File(FilePath.join(App.dataPath, 'local_path'));
       path = pathFile.readAsStringSync().trim();
-      if (path.isEmpty || !directory.existsSync()) {
+      if (path.isEmpty ||
+          (!path.startsWith('android://') && !directory.existsSync())) {
         path = await findDefaultPath();
         await _persistPath();
       }
@@ -456,7 +461,11 @@ class LocalManager with ChangeNotifier {
       Log.error("IO", "Failed to create local folder: $e", s);
     }
     await _checkPathValidation();
-    _checkNoMedia();
+    try {
+      _checkNoMedia();
+    } catch (e, s) {
+      Log.error("IO", "Failed to create .nomedia: $e", s);
+    }
     isInitialized = true;
   }
 
@@ -694,7 +703,7 @@ class LocalManager with ChangeNotifier {
         cover: cover,
         comicType: ComicType.local,
         downloadedChapters: chapters?.ids.toList() ?? const [],
-        createdAt: (await entity.stat()).modified,
+        createdAt: validLocalModifiedTime((await entity.stat()).modified),
       );
       await add(comic);
       discovered++;
@@ -1226,7 +1235,10 @@ class LocalManager with ChangeNotifier {
   static void _deleteDirectories(List<Directory> directories) {
     if (directories.isEmpty) return;
     final paths = directories.map((dir) => dir.path).toList();
-    final root = path_utils.canonicalize(LocalManager().path);
+    final storagePath = LocalManager().path;
+    final root = storagePath.startsWith('android://')
+        ? storagePath
+        : path_utils.canonicalize(storagePath);
     unawaited(
       BackgroundTasks.instance
           .run<void>('local-delete:${++_deleteBatchId}', 'Delete local files', (
@@ -1281,8 +1293,11 @@ class LocalManager with ChangeNotifier {
         try {
           final target = path_utils.canonicalize(path);
           var current = target;
-          var safe = target != root && path_utils.isWithin(root, target);
-          while (safe) {
+          final saf = root.startsWith('android://');
+          var safe = saf
+              ? _isSafChild(root, path)
+              : target != root && path_utils.isWithin(root, target);
+          while (safe && !saf) {
             if (FileSystemEntity.typeSync(current, followLinks: false) ==
                 FileSystemEntityType.link) {
               safe = false;
@@ -1341,7 +1356,16 @@ class LocalManager with ChangeNotifier {
     return errors;
   });
 
+  static bool _isSafChild(String root, String target) {
+    if (!target.startsWith('$root/')) return false;
+    return target
+        .substring(root.length + 1)
+        .split('/')
+        .every((part) => part.isNotEmpty && part != '.' && part != '..');
+  }
+
   bool _isManagedPath(String candidate) {
+    if (path.startsWith('android://')) return _isSafChild(path, candidate);
     final root = path_utils.canonicalize(path);
     final target = path_utils.canonicalize(candidate);
     if (target == root || !path_utils.isWithin(root, target)) return false;
@@ -1421,3 +1445,6 @@ enum LocalSortType {
     return name;
   }
 }
+
+DateTime validLocalModifiedTime(DateTime modified) =>
+    modified.millisecondsSinceEpoch > 0 ? modified : DateTime.now();

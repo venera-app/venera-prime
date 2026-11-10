@@ -15,7 +15,7 @@ export "widget_utils.dart";
 export "context.dart";
 
 class _App {
-  final version = "2.8.0";
+  final version = "2.8.1";
 
   bool get isAndroid => Platform.isAndroid;
 

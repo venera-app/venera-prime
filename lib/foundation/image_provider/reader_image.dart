@@ -153,5 +153,8 @@ class ReaderImageProvider
   }
 
   @override
+  String get diskCacheKey => "$imageKey@$sourceKey@$cid@$eid";
+
+  @override
   String get key => "$imageKey@$sourceKey@$cid@$eid@$page@$enableResize";
 }

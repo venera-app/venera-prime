@@ -339,7 +339,7 @@ class ImportComic {
           var stat = await entry.stat();
           var result = await _checkSingleComic(
             entry,
-            createTime: stat.modified,
+            createTime: validLocalModifiedTime(stat.modified),
             useRelativePath: true,
           );
           if (result != null) {

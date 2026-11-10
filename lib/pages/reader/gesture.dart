@@ -11,6 +11,16 @@ class _ReaderGestureDetector extends StatefulWidget {
 
 class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDetector> {
   late TapGestureRecognizer _tapGestureRecognizer;
+  Timer? _longPressTimer;
+  Timer? _tapTimer;
+
+  @override
+  void dispose() {
+    _longPressTimer?.cancel();
+    _tapTimer?.cancel();
+    _tapGestureRecognizer.dispose();
+    super.dispose();
+  }
 
   static const _kDoubleTapMaxTime = Duration(milliseconds: 200);
 
@@ -58,6 +68,7 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
           return;
         }
         fingers++;
+        if (fingers == 1) _longPressInProgress = false;
         if (ignoreNextTag) {
           ignoreNextTag = false;
           return;
@@ -71,7 +82,11 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
           }
           _dragInProgress = false;
         }
-        Future.delayed(_kLongPressMinTime, () {
+        final page = reader.page;
+        final chapter = reader.eid;
+        _longPressTimer?.cancel();
+        _longPressTimer = Timer(_kLongPressMinTime, () {
+          if (!mounted || reader.page != page || reader.eid != chapter) return;
           if (_lastTapPointer == event.pointer && fingers == 1) {
             if (_lastTapMoveDistance!.distanceSquared < 20.0 * 20.0) {
               onLongPressedDown(event.position);
@@ -97,6 +112,7 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
         }
       },
       onPointerUp: (event) {
+        _longPressTimer?.cancel();
         fingers--;
         if (_longPressInProgress) {
           onLongPressedUp(event.position);
@@ -111,8 +127,10 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
         _lastTapMoveDistance = null;
       },
       onPointerCancel: (event) {
+        _longPressTimer?.cancel();
         fingers--;
         if (_longPressInProgress) {
+          _longPressInProgress = false;
           onLongPressedUp(event.position);
         }
         if (_dragInProgress) {
@@ -156,6 +174,7 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
       appdata.settings.getReaderSetting(reader.cid, reader.type.sourceKey, 'enableDoubleTapToZoom');
 
   void onTapUp(TapUpDetails event) {
+    if (!mounted) return;
     if (event.globalPosition == Offset.zero &&
         event.localPosition == Offset.zero) {
       _previousEvent = null;
@@ -182,8 +201,9 @@ class _ReaderGestureDetectorState extends AutomaticGlobalState<_ReaderGestureDet
       }
     }
     _previousEvent = event;
-    Future.delayed(_kDoubleTapMaxTime, () {
-      if (_previousEvent == event) {
+    _tapTimer?.cancel();
+    _tapTimer = Timer(_kDoubleTapMaxTime, () {
+      if (mounted && _previousEvent == event) {
         onTap(location);
         _previousEvent = null;
       }

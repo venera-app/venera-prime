@@ -494,7 +494,8 @@ class Settings with ChangeNotifier {
     'comicDisplayMode': 'detailed', // detailed, brief
     'homeLayout': <String, dynamic>{},
     'comicTileScale': 1.00, // 0.75-1.25
-    'color': 'system', // red, pink, purple, green, orange, blue
+    'color': 'system', // system, preset name, custom
+    'customThemeColor': 0xff2196f3,
     'theme_mode': 'system', // light, dark, system
     'newFavoriteAddTo': 'end', // start, end
     'moveFavoriteAfterRead': 'none', // none, end, start

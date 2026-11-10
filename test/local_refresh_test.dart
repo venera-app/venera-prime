@@ -7,6 +7,34 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
 
 void main() {
+  test('SAF managed paths reject traversal, siblings and the root itself', () {
+    final manager = LocalManager();
+    manager.path = 'android://tree:authority-root';
+    expect(manager.isManagedPath('${manager.path}/comic/chapter'), isTrue);
+    for (final path in [
+      manager.path,
+      '${manager.path}-other/comic',
+      '${manager.path}/comic/../outside',
+      '${manager.path}/./comic',
+      '${manager.path}//comic',
+    ]) {
+      expect(manager.isManagedPath(path), isFalse, reason: path);
+    }
+  });
+  test(
+    'provider unknown timestamps use now; known timestamps are retained',
+    () {
+      expect(
+        validLocalModifiedTime(
+          DateTime.fromMillisecondsSinceEpoch(0),
+        ).difference(DateTime.now()).abs(),
+        lessThan(const Duration(seconds: 1)),
+      );
+      final date = DateTime.utc(2024, 3, 1);
+      expect(validLocalModifiedTime(date), date);
+    },
+  );
+
   test(
     'new local chapters use one sequence for mixed chapter name formats',
     () async {
