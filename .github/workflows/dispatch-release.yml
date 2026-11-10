@@ -6,6 +6,10 @@ on:
         description: 'Existing version tag to build and publish on all six platforms'
         required: true
         type: string
+      retry_run_id:
+        description: 'Optional completed bot Build ALL run to retry failed jobs for the same tag'
+        required: false
+        type: string
 permissions:
   actions: write
   contents: read
@@ -19,11 +23,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          RETRY_RUN_ID: ${{ inputs.retry_run_id }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected vX.Y.Z'; exit 1; }
           gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --silent
+          if [[ -n "$RETRY_RUN_ID" ]]; then
+            [[ "$RETRY_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Expected numeric run ID'; exit 1; }
+            tag_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            gh api "repos/$GH_REPO/actions/runs/$RETRY_RUN_ID" > "$RUNNER_TEMP/retry-run.json"
+            jq -e --arg sha "$tag_sha" --arg tag "$RELEASE_TAG" '
+              .path == ".github/workflows/main.yml" and
+              .event == "workflow_dispatch" and .head_branch == $tag and
+              .head_sha == $sha and .status == "completed" and
+              (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") and
+              .actor.login == "github-actions[bot]" and
+              .triggering_actor.login == "github-actions[bot]"
+            ' "$RUNNER_TEMP/retry-run.json" > /dev/null
+            gh api --method POST "repos/$GH_REPO/actions/runs/$RETRY_RUN_ID/rerun-failed-jobs"
+            exit 0
+          fi
           jq -n --arg tag "$RELEASE_TAG" '{
             ref: $tag,
             inputs: {
