@@ -10,6 +10,10 @@ on:
         description: 'Optional completed bot Build ALL run to retry failed jobs for the same tag'
         required: false
         type: string
+      publish_build_run_id:
+        description: 'Optional bot run with six successful builds; recover publishing from the default branch'
+        required: false
+        type: string
 permissions:
   actions: write
   # A bot rerun must retain the release publisher's contents permission.
@@ -25,11 +29,26 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           RETRY_RUN_ID: ${{ inputs.retry_run_id }}
+          PUBLISH_BUILD_RUN_ID: ${{ inputs.publish_build_run_id }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected vX.Y.Z'; exit 1; }
           gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --silent
+          if [[ -n "$PUBLISH_BUILD_RUN_ID" ]]; then
+            [[ -z "$RETRY_RUN_ID" && "$PUBLISH_BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+            branch=$(gh api "repos/$GH_REPO" --jq .default_branch)
+            jq -n --arg ref "$branch" --arg tag "$RELEASE_TAG" --arg run "$PUBLISH_BUILD_RUN_ID" '{
+              ref: $ref,
+              inputs: {
+                release_tag: $tag, publish_build_run_id: $run,
+                publish_release: "true", allow_personal_trigger: "false",
+                build_macos: "false", build_ios: "false", build_android: "false",
+                build_windows: "false", build_linux: "false", build_linux_arm64: "false"
+              }
+            }' | gh api --method POST "repos/$GH_REPO/actions/workflows/main.yml/dispatches" --input -
+            exit 0
+          fi
           if [[ -n "$RETRY_RUN_ID" ]]; then
             [[ "$RETRY_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Expected numeric run ID'; exit 1; }
             tag_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)

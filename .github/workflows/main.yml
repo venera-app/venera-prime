@@ -51,11 +51,16 @@ on:
         description: 'Existing tag to publish when publish_release is enabled'
         required: false
         type: string
+      publish_build_run_id:
+        description: 'Recover publishing from a bot run whose six platform builds succeeded'
+        required: false
+        type: string
   release:
     types: [published]
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   Validate_Version:
@@ -67,6 +72,8 @@ jobs:
       notes: ${{ steps.version.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Verify automated release identity
         if: ${{ github.event_name == 'release' || inputs.publish_release }}
         env:
@@ -348,8 +355,36 @@ jobs:
           echo '::error::One or more platform builds failed or were canceled. No release will be published.'
           exit 1
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      - name: Verify existing tag and all six source builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.Validate_Version.outputs.tag }}
+          SOURCE_RUN: ${{ inputs.publish_build_run_id || github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+          tag_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+          [[ "$tag_sha" == "$(git rev-parse HEAD)" ]]
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" > "$RUNNER_TEMP/source-run.json"
+          jq -e --arg sha "$tag_sha" '
+            .head_sha == $sha and .path == ".github/workflows/main.yml" and
+            .actor.login == "github-actions[bot]" and
+            .triggering_actor.login == "github-actions[bot]"
+          ' "$RUNNER_TEMP/source-run.json" > /dev/null
+          gh api --paginate --slurp "repos/$GH_REPO/actions/runs/$SOURCE_RUN/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+          jq -e '
+            [.[].jobs[] | select(.conclusion == "success") | .name] as $ok |
+            ["Build_MacOS", "Build_IOS", "Build_Android", "Build_Windows", "Build_Linux", "Build_Linux_ARM64"] |
+            all(.[]; . as $name | $ok | index($name) != null)
+          ' "$RUNNER_TEMP/source-jobs.json" > /dev/null
       - uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.publish_build_run_id || github.run_id }}
           pattern: "*_build"
           merge-multiple: true
           path: outputs
